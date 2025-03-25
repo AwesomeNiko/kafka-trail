@@ -1,0 +1,97 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Build output
+dist/
+build/
+
+# Runtime data
+*.pid
+*.pid.lock
+
+# Environment files
+.env
+.env.test
+.env.production
+.env.development.local
+.env.local
+
+# System files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+*.patch
+
+# Coverage reports
+coverage/
+
+# Test output
+.nyc_output/
+test-results/
+
+# Lint caches
+.eslintcache
+.stylelintcache
+
+# TypeScript
+*.tsbuildinfo
+
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Logs for debugging
+*.out
+*.err
+
+# Optional npm cache directory
+.npm/
+
+# Local npm configuration
+.npmrc
+
+# Yarn Integrity
+.yarn-integrity
+
+# Yarn/PNPM artifacts
+.yarn/
+.pnp.cjs
+.pnp.loader.mjs
+
+# IDE settings
+.vscode/
+.idea/
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in a macOS directory
+.Spotlight-V100
+.Trashes

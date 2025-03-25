@@ -1,0 +1,29 @@
+{
+  "preset": "ts-jest/presets/default-esm",
+  "testEnvironment": "node",
+  "transform": {
+    "^.+\\.ts?$": [
+      "ts-jest",
+      {
+        "useESM": true
+      }
+    ]
+  },
+  "extensionsToTreatAsEsm": [".ts"],
+  "moduleNameMapper": {
+    "^(\\.{1,2}/.*)\\.js$": "$1"
+  },
+  "verbose": true,
+  "collectCoverage": true,
+  "collectCoverageFrom": [
+    "src/**/*.{js,jsx,ts,tsx}",
+    "!src/**/*.d.ts"
+  ],
+  "coverageDirectory": "coverage",
+  "coverageReporters": ["json", "lcov", "text", "clover"],
+  "testPathIgnorePatterns": ["/node_modules/", "/dist/"],
+  "moduleFileExtensions": ["js", "json", "node", "ts"],
+  "testRegex": [
+    "__tests__/.*\\.unit\\..*\\.ts$"
+  ]
+}

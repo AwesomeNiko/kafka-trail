@@ -1,0 +1,55 @@
+{
+  "name": "@awesomeniko/kafka-trail",
+  "version": "1.0.0",
+  "description": "A description of your package",
+  "type": "module",
+  "keywords": [
+    "Kafka",
+    "Message queue"
+  ],
+  "main": "index.js",
+  "author": "Nikolai Terskikh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AwesomeNiko/kafka-trail.git"
+  },
+  "scripts": {
+    "lint": "yarn lint:check",
+    "lint:check": "eslint --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
+    "lint:fix": "eslint --fix --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
+    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --forceExit",
+    "start": "NODE_PATH=./dist node --enable-source-maps dist/index.js",
+    "build": "rimraf dist && tsc -P tsconfig.build.json",
+    "dev": "npm run build:dev && npm run start"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "lz4": "^0.6.5",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@types/jest": "^29.5.14",
+    "@types/lz4": "^0.6.4",
+    "@types/node": "^22.13.4",
+    "@typescript-eslint/eslint-plugin": "8.24.1",
+    "@typescript-eslint/parser": "8.24.1",
+    "eslint": "9.20.1",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-import-resolver-typescript": "^3.5.3",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jest": "^28.11.0",
+    "eslint-plugin-unused-imports": "^4.1.4",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.4",
+    "rimraf": "^6.0.1",
+    "ts-jest": "^29.2.6",
+    "typescript": "5.7.3"
+  },
+  "resolutions": {
+    "prettier": "^3.2.4"
+  }
+}
