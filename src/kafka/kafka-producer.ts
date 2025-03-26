@@ -16,7 +16,7 @@ type KTKafkaProducerConfig = {
 class KTKafkaProducer extends KTKafkaBroker {
   #producer: Kafka.Producer;
   #admin: Kafka.Admin;
-  #logger: Console | pino.Logger;
+  #logger: pino.Logger;
 
   constructor(params: KafkaWithLogger<KTKafkaProducerConfig>) {
     super(params);

@@ -19,7 +19,7 @@ export type KafkaBrokerConfig = {
 }
 
 export type KafkaLogger = {
-  logger: Console | pino.Logger;
+  logger: pino.Logger;
 }
 
 export type KafkaWithLogger<T extends KafkaBrokerConfig> = T & KafkaLogger

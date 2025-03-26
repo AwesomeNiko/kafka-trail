@@ -76,7 +76,7 @@ describe("Consumer handlers test", () => {
 
     const testExampleTopicHandler = KTHandler({
       topic: TestExampleTopic,
-      run: async (payload, mq) => {
+      run: async (payload, _, publisher) => {
         const data = payload[0]
 
         if (!data) {
@@ -87,7 +87,7 @@ describe("Consumer handlers test", () => {
           messageKey: KafkaMessageKey.fromString('testMessageKey'),
         })
 
-        await mq.publishSingleData(testExamplePayload)
+        await publisher.publishSingleData(testExamplePayload)
       },
     })
 
@@ -159,7 +159,7 @@ describe("Consumer handlers test", () => {
 
     const testExampleTopicHandler = KTHandler({
       topic: TestExampleTopic,
-      run: async (payload, mq) => {
+      run: async (payload, _, publisher) => {
         const data = payload[0]
 
         if (!data) {
@@ -170,7 +170,7 @@ describe("Consumer handlers test", () => {
           messageKey: KafkaMessageKey.fromString('testMessageKey'),
         })
 
-        await mq.publishSingleData(testExamplePayload)
+        await publisher.publishSingleData(testExamplePayload)
       },
     })
 

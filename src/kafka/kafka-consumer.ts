@@ -21,7 +21,7 @@ export type KTKafkaConsumerConfig = {
 
 class KTKafkaConsumer extends KTKafkaBroker {
   #isConnected = false;
-  #logger: Console | pino.Logger;
+  #logger: pino.Logger;
 
   consumer: Kafka.Consumer
 

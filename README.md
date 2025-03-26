@@ -34,7 +34,7 @@ yarn add kafka-trail
 
 ## Usage
 Here’s an example of how to use the `kafka-trail` library in your project.
-### For producer:
+### If you want only producer:
 
 ```typescript
 // Define your Kafka broker URLs
@@ -42,7 +42,7 @@ import { KTTopic } from "kafka-trail";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "kafka-trail";
 import { KTMessageQueue } from "kafka-trail";
 
-const kafkaBrokerUrls = ["kafka://localhost:9092"];
+const kafkaBrokerUrls = ["localhost:19092"];
 
 // Create a MessageQueue instance
 const messageQueue = new KTMessageQueue();
@@ -80,14 +80,104 @@ const payload = TestExampleTopic({
 await messageQueue.publishSingleData(payload)
 ```
 
-### For consumer:
+### If you want consumer only:
+```typescript
+import type  { pino } from "pino";
+
+import { KTHandler } from "kafka-trail";
+import { KTTopic } from "kafka-trail";
+import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "kafka-trail";
+import { KTMessageQueue } from "kafka-trail";
+
+// Another dependency example
+class DatabaseClass {
+  #client: string
+  constructor () {
+    this.#client = 'test-client'
+  }
+
+  getClient() {
+    return this.#client
+  }
+}
+
+const dbClass = new DatabaseClass()
+
+const kafkaBrokerUrls = ["localhost:19092"];
+
+// Create a MessageQueue instance
+const messageQueue = new KTMessageQueue({
+  // If you want pass context available in handler
+  ctx: () => {
+    return {
+      dbClass,
+    }
+  },
+});
+
+export const TestExampleTopic = KTTopic<{
+  fieldForPayload: number
+}>({
+  topic: KafkaTopicName.fromString('test.example'),
+  numPartitions: 1,
+  batchMessageSizeToConsume: 10,
+})
+
+const payload = TestExampleTopic({
+  fieldForPayload: 1,
+}, {
+  messageKey: KafkaMessageKey.NULL, //If you don't want to specify message key
+})
+
+await messageQueue.publishSingleData(payload)
+
+// Create topic handler
+const testExampleTopicHandler = KTHandler({
+  topic: TestExampleTopic,
+  run: async (payload, ctx: {logger: pino.Logger, dbClass: typeof dbClass}) => {
+    // Ts will show you right type for `payload` variable from `TestExampleTopic`
+    // Ctx passed from KTMessageQueue({ctx: () => {...}})
+
+    const data = payload[0]
+
+    if (!data) {
+      return Promise.resolve()
+    }
+
+    const logger = ctx.logger.child({
+      payload: data.fieldForPayload,
+    })
+
+    logger.info(dbClass.getClient())
+
+    return Promise.resolve()
+  },
+})
+
+messageQueue.registerHandlers([
+  testExampleTopicHandler,
+])
+
+// Start consumer
+await messageQueue.initConsumer({
+  kafkaSettings: {
+    brokerUrls: kafkaBrokerUrls,
+    clientId: KafkaClientId.fromString('hostname'),
+    connectionTimeout: 30_000,
+    consumerGroupId: 'consumer-group-id',
+  },
+})
+```
+
+
+### For both consumer and producer:
 ```typescript
 import { KTHandler } from "kafka-trail";
 import { KTTopic } from "kafka-trail";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "kafka-trail";
 import { KTMessageQueue } from "kafka-trail";
 
-const kafkaBrokerUrls = ["kafka://localhost:9092"];
+const kafkaBrokerUrls = ["localhost:19092"];
 
 // Create a MessageQueue instance
 const messageQueue = new KTMessageQueue();
@@ -101,6 +191,15 @@ const TestExampleTopic = KTTopic<{
   batchMessageSizeToConsume: 10,
 })
 
+// Required, because inside handler we are going to publish data
+await messageQueue.initProducer({
+  kafkaSettings: {
+    brokerUrls: kafkaBrokerUrls,
+    clientId: KafkaClientId.fromString('hostname'),
+    connectionTimeout: 30_000,
+  },
+})
+
 // Create or use topic
 await messageQueue.initTopics([
   TestExampleTopic,
@@ -109,7 +208,7 @@ await messageQueue.initTopics([
 // Create topic handler
 const testExampleTopicHandler = KTHandler({
   topic: TestExampleTopic,
-  run: async (payload, ktMessageQueue) => {
+  run: async (payload, _, publisher) => {
     // Ts will show you right type for `payload` variable from `TestExampleTopic`
 
     const data = payload[0]
@@ -124,7 +223,7 @@ const testExampleTopicHandler = KTHandler({
       messageKey: KafkaMessageKey.NULL,
     })
 
-    await ktMessageQueue.publishSingleData(newPayload)
+    await publisher.publishSingleData(newPayload)
   },
 })
 
@@ -169,7 +268,7 @@ import { CompressionTypes } from "kafkajs";
 import lz4 from "lz4";
 
 // Instanciate messageQueue
-const kafkaBrokerUrls = ["kafka://localhost:9092"];
+const kafkaBrokerUrls = ["localhost:19092"];
 
 const messageQueue = new KTMessageQueue();
 

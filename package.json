@@ -1,13 +1,14 @@
 {
   "name": "@awesomeniko/kafka-trail",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "A description of your package",
   "type": "module",
   "keywords": [
     "Kafka",
     "Message queue"
   ],
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "author": "Nikolai Terskikh",
   "license": "MIT",
   "repository": {
@@ -19,11 +20,17 @@
     "lint:check": "eslint --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "lint:fix": "eslint --fix --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --forceExit",
-    "start": "NODE_PATH=./dist node --enable-source-maps dist/index.js",
+    "start": "NODE_PATH=./dist node --enable-source-maps dist/test-run.js",
     "build": "rimraf dist && tsc -P tsconfig.build.json",
-    "dev": "npm run build:dev && npm run start"
+    "dev": "npm run build && npm run start"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.8.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.46.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.49.1",
+    "@opentelemetry/resources": "^1.22.0",
+    "@opentelemetry/sdk-node": "0.51.1",
+    "@opentelemetry/semantic-conventions": "^1.22.0",
     "kafkajs": "^2.2.4",
     "lz4": "^0.6.5",
     "pino": "^9.6.0",

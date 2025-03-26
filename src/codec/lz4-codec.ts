@@ -4,7 +4,8 @@ export type lz4Codec = typeof lz4Codec
 
 const lz4Codec = {
   compress(encoder: Buffer) {
-    return lz4.encode(encoder);
+    // @ts-expect-error encode type required Buffer, but implementation for a some reason required ArrayBufferLike
+    return lz4.encode(encoder.buffer);
   },
 
   decompress<T>(buffer: Buffer) {

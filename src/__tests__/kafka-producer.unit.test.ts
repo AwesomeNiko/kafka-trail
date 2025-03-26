@@ -1,9 +1,12 @@
 import { describe, expect, it, beforeEach } from "@jest/globals";
-import { createKafkaMocks } from "./mocks/create-mocks.ts";
-import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
-import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
 import { CompressionTypes } from "kafkajs";
+import { pino } from "pino";
+
 import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.ts";
+import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
+import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+
+import { createKafkaMocks } from "./mocks/create-mocks.ts";
 
 const {
   kafkaAdminConnectFn,
@@ -36,9 +39,9 @@ describe("KafkaProducer test", () => {
       kafkaSettings: {
         brokerUrls: ['localhost:19092'],
         clientId: KafkaClientId.fromString('producer-test-client-id'),
-        connectionTimeout: 30_000
+        connectionTimeout: 30_000,
       },
-      logger: console
+      logger: pino(),
     });
 
     await kafkaProducer.init();
@@ -55,9 +58,9 @@ describe("KafkaProducer test", () => {
       kafkaSettings: {
         brokerUrls: ['localhost:19092'],
         clientId: KafkaClientId.fromString('producer-test-client-id'),
-        connectionTimeout: 30_000
+        connectionTimeout: 30_000,
       },
-      logger: console
+      logger: pino(),
     });
 
     await kafkaProducer.init();
@@ -84,9 +87,9 @@ describe("KafkaProducer test", () => {
       kafkaSettings: {
         brokerUrls: ['localhost:19092'],
         clientId: KafkaClientId.fromString('producer-test-client-id'),
-        connectionTimeout: 30_000
+        connectionTimeout: 30_000,
       },
-      logger: console
+      logger: pino(),
     });
 
     await kafkaProducer.init();
@@ -113,9 +116,9 @@ describe("KafkaProducer test", () => {
       kafkaSettings: {
         brokerUrls: ['localhost:19092'],
         clientId: KafkaClientId.fromString('producer-test-client-id'),
-        connectionTimeout: 30_000
+        connectionTimeout: 30_000,
       },
-      logger: console
+      logger: pino(),
     });
 
     await kafkaProducer.init();
@@ -131,9 +134,9 @@ describe("KafkaProducer test", () => {
       kafkaSettings: {
         brokerUrls: ['localhost:19092'],
         clientId: KafkaClientId.fromString('producer-test-client-id'),
-        connectionTimeout: 30_000
+        connectionTimeout: 30_000,
       },
-      logger: console
+      logger: pino(),
     });
 
     await kafkaProducer.sendSingleMessage({

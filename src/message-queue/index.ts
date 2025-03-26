@@ -10,15 +10,27 @@ import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import type { KTTopicPayloadWithMeta, KTTopicEvent } from "../kafka/topic.js";
 import { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
-class KTMessageQueue {
+class KTMessageQueue<Ctx extends object> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  #registeredHandlers: Map<KafkaTopicName, KTHandler<any>> = new Map();
+  #registeredHandlers: Map<KafkaTopicName, KTHandler<any, Ctx & KafkaLogger>> = new Map();
+  testMap: Map<string, Ctx> = new Map();
   #ktProducer!: KTKafkaProducer;
   #ktConsumer!: KTKafkaConsumer;
   #logger: Console | pino.Logger = console;
+  #ctx: Ctx & KafkaLogger
 
-  constructor(params?: KafkaLogger) {
-    this.#logger = params?.logger ?? pino();
+  constructor(params?: {ctx: () => Ctx & { logger?: pino.Logger }}) {
+    let ctx = params?.ctx()
+
+    if (!ctx) {
+      ctx = {} as Ctx & KafkaLogger
+    }
+
+    if (!ctx.logger) {
+      ctx.logger = pino()
+    }
+
+    this.#ctx = ctx as Ctx & KafkaLogger
   }
 
   getConsumer() {
@@ -34,7 +46,7 @@ class KTMessageQueue {
 
     if(!brokerUrls || !brokerUrls.length) { throw new ArgumentIsRequired('brokerUrls'); }
 
-    this.#ktProducer  = new KTKafkaProducer({ ...params, logger: this.#logger });
+    this.#ktProducer  = new KTKafkaProducer({ ...params, logger: this.#ctx.logger });
     await this.#ktProducer.init();
   }
 
@@ -45,7 +57,7 @@ class KTMessageQueue {
       throw new NoHandlersError('subscribe to consumer');
     }
     
-    this.#ktConsumer = new KTKafkaConsumer({ ...params, logger: this.#logger });
+    this.#ktConsumer = new KTKafkaConsumer({ ...params, logger: this.#ctx.logger });
     await this.#ktConsumer.init();
     await this.#subscribeAll()
   }
@@ -76,15 +88,16 @@ class KTMessageQueue {
       eachBatchAutoResolve: false,
       partitionsConsumedConcurrently: 1,
       eachBatch: async (eachBatchPayload) => {
-        const { batch: { topic, messages } } = eachBatchPayload
+        const { batch: { topic, messages, partition } } = eachBatchPayload
 
         const topicName = KafkaTopicName.fromString(topic)
 
         const handler = this.#registeredHandlers.get(topicName)
 
         if (handler) {
+
           const batchedValues = [];
-          let lastOffset = null
+          let lastOffset: string | undefined = undefined
 
           for (const message of messages) {
             if (batchedValues.length <= handler.topic.topicSettings.batchMessageSizeToConsume) {
@@ -99,7 +112,10 @@ class KTMessageQueue {
             }
           }
 
-          await handler.run(batchedValues, this)
+          await handler.run(batchedValues, this.#ctx, this, {
+            partition,
+            lastOffset,
+          })
 
           if (lastOffset) {
             eachBatchPayload.resolveOffset(lastOffset)
@@ -125,7 +141,7 @@ class KTMessageQueue {
     }
   }
   
-  registerHandlers<T extends object>(mqHandlers: KTHandler<T>[]) {
+  registerHandlers<T extends object>(mqHandlers: KTHandler<T, Ctx & KafkaLogger>[]) {
     for (const handler of mqHandlers) {
       if (!this.#registeredHandlers.has(handler.topic.topicSettings.topic)) {
         this.#registeredHandlers.set(handler.topic.topicSettings.topic, handler);

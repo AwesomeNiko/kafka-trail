@@ -2,7 +2,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": false,
+    "declaration": true,
+    "declarationDir": "dist",
   },
   "exclude": ["src/**/*.test.ts", "coverage", "src/__tests__"]
 }
