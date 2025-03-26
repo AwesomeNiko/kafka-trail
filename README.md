@@ -1,5 +1,9 @@
 # Kafka-trail - MessageQueue Library
 
+> [!WARNING]
+>
+> The library has not yet been published to `npm` repository. Approx publishing 27 Mar, 2025
+
 A Node.js library for managing message queues with Kafka, designed to simplify creating, using, and managing Kafka topics with producers and consumers.
 
 ### Based on [Kafkajs](https://kafka.js.org/)
