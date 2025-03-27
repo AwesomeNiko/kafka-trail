@@ -123,14 +123,6 @@ export const TestExampleTopic = KTTopic<{
   batchMessageSizeToConsume: 10,
 })
 
-const payload = TestExampleTopic({
-  fieldForPayload: 1,
-}, {
-  messageKey: KafkaMessageKey.NULL, //If you don't want to specify message key
-})
-
-await messageQueue.publishSingleData(payload)
-
 // Create topic handler
 const testExampleTopicHandler = KTHandler({
   topic: TestExampleTopic,
