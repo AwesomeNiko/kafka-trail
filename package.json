@@ -1,11 +1,21 @@
 {
   "name": "@awesomeniko/kafka-trail",
   "version": "0.0.1",
-  "description": "A description of your package",
+  "description": "A Node.js library for managing message queue with Kafka",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "Kafka",
-    "Message queue"
+    "Kafkajs",
+    "Message queue",
+    "Service",
+    "Microservice",
+    "Producer",
+    "Consumer",
+    "Typescript",
+    "Nodejs"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -58,5 +68,10 @@
   },
   "resolutions": {
     "prettier": "^3.2.4"
-  }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ]
 }
