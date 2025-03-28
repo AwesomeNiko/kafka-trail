@@ -46,11 +46,11 @@ class KTKafkaProducer extends KTKafkaBroker {
   }
 
   async createTopic(topicName: string, partitions = 1, customConfigArray: IResourceConfigEntry[] = []): Promise<void> {
-    this.#logger.info("Resolving topics...", {
+    this.#logger.info({
       topicName,
       partitions,
       customConfigArray,
-    });
+    }, "Resolving topics...");
 
     try {
       const topicMetadata = await this.#admin.fetchTopicMetadata({ topics: [topicName] });
@@ -76,7 +76,7 @@ class KTKafkaProducer extends KTKafkaBroker {
             },
           ],
         });
-        this.#logger.info("Expanded partitions for ${topic} topic");
+        this.#logger.info(`Expanded partitions for ${topicName} topic`);
       } else {
         throw new UnableDecreasePartitionsError();
       }
@@ -95,7 +95,7 @@ class KTKafkaProducer extends KTKafkaBroker {
           waitForLeaders: true,
         });
       } else {
-        this.#logger.error("Error from createTopic", e);
+        this.#logger.error(e, "Error from createTopic");
         throw e;
       }
     }

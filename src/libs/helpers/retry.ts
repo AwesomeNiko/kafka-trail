@@ -17,7 +17,7 @@ const retry = async (
 
       return true;
     } catch (e) {
-      logger.warn(`Error, retrying | ${attempt}`, e);
+      logger.warn(e, `Error, retrying | ${attempt}`);
       await sleep(interval);
       attempt++;
     }
