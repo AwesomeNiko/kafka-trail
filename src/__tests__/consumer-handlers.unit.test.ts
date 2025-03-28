@@ -29,7 +29,7 @@ describe("Consumer handlers test", () => {
     kafkaConsumerSubscribeTopicMock.mockClear();
   });
 
-  it("should publishSingleData directly successful", async () => {
+  it("should publishSingleMessage directly successful", async () => {
     const mq = new KTMessageQueue();
 
     await mq.initProducer({
@@ -52,7 +52,7 @@ describe("Consumer handlers test", () => {
       messageKey: KafkaMessageKey.NULL,
     })
 
-    await mq.publishSingleData(testExamplePayload)
+    await mq.publishSingleMessage(testExamplePayload)
 
     expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
       messageKey: null,
@@ -87,7 +87,7 @@ describe("Consumer handlers test", () => {
           messageKey: KafkaMessageKey.fromString('testMessageKey'),
         })
 
-        await publisher.publishSingleData(testExamplePayload)
+        await publisher.publishSingleMessage(testExamplePayload)
       },
     })
 
@@ -170,7 +170,7 @@ describe("Consumer handlers test", () => {
           messageKey: KafkaMessageKey.fromString('testMessageKey'),
         })
 
-        await publisher.publishSingleData(testExamplePayload)
+        await publisher.publishSingleMessage(testExamplePayload)
       },
     })
 

@@ -7,7 +7,7 @@ import type { KTTopicEvent } from "./topic.js";
 export type KTRun<Payload extends object, Ctx extends object> = (
   payload: Payload[],
   ctx: Ctx,
-  publisher: Pick<KTMessageQueue<Ctx>, 'publishSingleData'>,
+  publisher: Pick<KTMessageQueue<Ctx>, 'publishSingleMessage'>,
   kafkaTopicParams: {
     partition?: number
     lastOffset?: string | undefined
@@ -43,7 +43,7 @@ export type KTHandler<Payload extends object, Ctx extends object> = {
  *       messageKey: KafkaMessageKey.NULL,
  *     })
  *
- *     await ktMessageQueue.publishSingleData(newPayload)
+ *     await ktMessageQueue.publishSingleMessage(newPayload)
  *   },
  * })
  */
