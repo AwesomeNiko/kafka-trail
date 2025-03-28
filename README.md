@@ -38,9 +38,13 @@ Here’s an example of how to use the `kafka-trail` library in your project.
 
 ```typescript
 // Define your Kafka broker URLs
-import { KTTopic } from "kafka-trail";
-import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "kafka-trail";
-import { KTMessageQueue } from "kafka-trail";
+import { 
+  KTTopic, 
+  KafkaClientId, 
+  KafkaMessageKey, 
+  KafkaTopicName, 
+  KTMessageQueue 
+} from "kafka-trail";
 
 const kafkaBrokerUrls = ["localhost:19092"];
 
@@ -84,10 +88,14 @@ await messageQueue.publishSingleMessage(payload)
 ```typescript
 import type  { pino } from "pino";
 
-import { KTHandler } from "kafka-trail";
-import { KTTopic } from "kafka-trail";
-import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "kafka-trail";
-import { KTMessageQueue } from "kafka-trail";
+import { 
+  KTHandler, 
+  KTTopic, 
+  KafkaClientId, 
+  KafkaMessageKey, 
+  KafkaTopicName, 
+  KTMessageQueue 
+} from "kafka-trail";
 
 // Another dependency example
 class DatabaseClass {
@@ -130,7 +138,7 @@ const testExampleTopicHandler = KTHandler({
     // Ts will show you right type for `payload` variable from `TestExampleTopic`
     // Ctx passed from KTMessageQueue({ctx: () => {...}})
 
-    const data = payload[0]
+    const [data] = payload
 
     if (!data) {
       return Promise.resolve()
@@ -164,10 +172,14 @@ await messageQueue.initConsumer({
 
 ### For both consumer and producer:
 ```typescript
-import { KTHandler } from "kafka-trail";
-import { KTTopic } from "kafka-trail";
-import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "kafka-trail";
-import { KTMessageQueue } from "kafka-trail";
+import { 
+  KTHandler, 
+  KTTopic, 
+  KafkaClientId, 
+  KafkaMessageKey, 
+  KafkaTopicName, 
+  KTMessageQueue 
+} from "kafka-trail";
 
 const kafkaBrokerUrls = ["localhost:19092"];
 
@@ -203,10 +215,10 @@ const testExampleTopicHandler = KTHandler({
   run: async (payload, _, publisher) => {
     // Ts will show you right type for `payload` variable from `TestExampleTopic`
 
-    const data = payload[0]
+    const [data] = payload
 
     if (!data) {
-      return
+      return Promise.resolve()
     }
 
     const newPayload = TestExampleTopic({
