@@ -70,14 +70,14 @@ await messageQueue.initTopics([
   TestExampleTopic,
 ])
 
-// Use publishSingleData method to publish message
+// Use publishSingleMessage method to publish message
 const payload = TestExampleTopic({
   fieldForPayload: 1,
 }, {
   messageKey: KafkaMessageKey.NULL, //If you don't want to specify message key
 })
 
-await messageQueue.publishSingleData(payload)
+await messageQueue.publishSingleMessage(payload)
 ```
 
 ### If you want consumer only:
@@ -215,7 +215,7 @@ const testExampleTopicHandler = KTHandler({
       messageKey: KafkaMessageKey.NULL,
     })
 
-    await publisher.publishSingleData(newPayload)
+    await publisher.publishSingleMessage(newPayload)
   },
 })
 
