@@ -13,7 +13,6 @@ import { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 class KTMessageQueue<Ctx extends object> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #registeredHandlers: Map<KafkaTopicName, KTHandler<any, Ctx & KafkaLogger>> = new Map();
-  testMap: Map<string, Ctx> = new Map();
   #ktProducer!: KTKafkaProducer;
   #ktConsumer!: KTKafkaConsumer;
   #logger: Console | pino.Logger = console;
