@@ -1,4 +1,3 @@
-import type { IResourceConfigEntry } from "kafkajs";
 import { pino } from "pino";
 
 import { ArgumentIsRequired, NoHandlersError } from "../custom-errors/kafka-errors.js";
@@ -126,7 +125,7 @@ class KTMessageQueue<Ctx extends object> {
     })
   }
 
-  async initTopics<T extends object>(topicEvents: KTTopicEvent<T>[], extraSettings?: IResourceConfigEntry[]) {
+  async initTopics<T extends object>(topicEvents: KTTopicEvent<T>[]) {
     if (!this.#ktProducer) {
       throw new Error("Producer field is required");
     }
@@ -135,7 +134,7 @@ class KTMessageQueue<Ctx extends object> {
       await this.#ktProducer.createTopic(
         topicEvent.topicSettings.topic,
         topicEvent.topicSettings.numPartitions,
-        extraSettings,
+        topicEvent.topicSettings.configEntries,
       );
     }
   }
