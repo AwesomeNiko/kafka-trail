@@ -139,6 +139,10 @@ class KTMessageQueue<Ctx extends object> {
       );
     }
   }
+
+  getRegisteredHandler(topic: KafkaTopicName) {
+    return this.#registeredHandlers.get(topic)
+  }
   
   registerHandlers<T extends object>(mqHandlers: KTHandler<T, Ctx & KafkaLogger>[]) {
     for (const handler of mqHandlers) {
@@ -150,7 +154,7 @@ class KTMessageQueue<Ctx extends object> {
     }
   }
 
-  publishSingleData(topic: KTTopicPayloadWithMeta) {
+  publishSingleMessage(topic: KTTopicPayloadWithMeta) {
     return this.#ktProducer.sendSingleMessage({
       topicName: topic.topicName,
       message: topic.message,
