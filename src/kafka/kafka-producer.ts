@@ -103,7 +103,7 @@ class KTKafkaProducer extends KTKafkaBroker {
 
   async sendSingleMessage(params: { topicName: KafkaTopicName, message: string, messageKey: KafkaMessageKey  }, headers: IHeaders = {}) {
     const { topicName, messageKey, message } = params;
-
+  
     await this.#producer.send({
       topic: topicName,
       compression: CompressionTypes.LZ4,
@@ -116,22 +116,6 @@ class KTKafkaProducer extends KTKafkaBroker {
       ],
     });
   }
-
-  // async sendBatchMessage<T extends object>(params: { topicName: KafkaTopicName, batchMessage: KTTopicPayload<T>[] }, headers: IHeaders = {}) {
-  //   const { topicName, batchMessage } = params
-  //
-  //   const msgToSend = batchMessage.map((item) => ({
-  //     key: item.messageKey,
-  //     value: item.message,
-  //     headers,
-  //   }));
-  //
-  //   await this.#producer.send({
-  //     topic: topicName,
-  //     compression: CompressionTypes.LZ4,
-  //     messages: msgToSend,
-  //   });
-  // }
 }
 
 export { KTKafkaProducer };
