@@ -98,7 +98,7 @@ class KTMessageQueue<Ctx extends object> {
           let lastOffset: string | undefined = undefined
 
           for (const message of messages) {
-            if (batchedValues.length <= handler.topic.topicSettings.batchMessageSizeToConsume) {
+            if (batchedValues.length < handler.topic.topicSettings.batchMessageSizeToConsume) {
               if (message.value) {
                 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                 const decodedMessage: object = handler.topic.decode(message.value);
