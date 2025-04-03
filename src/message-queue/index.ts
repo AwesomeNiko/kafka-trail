@@ -1,3 +1,4 @@
+import { context, SpanKind, trace } from "@opentelemetry/api";
 import { pino } from "pino";
 
 import { ArgumentIsRequired, NoHandlersError } from "../custom-errors/kafka-errors.js";
@@ -86,41 +87,54 @@ class KTMessageQueue<Ctx extends object> {
       eachBatchAutoResolve: false,
       partitionsConsumedConcurrently: 1,
       eachBatch: async (eachBatchPayload) => {
-        const { batch: { topic, messages, partition } } = eachBatchPayload
+        const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
-        const topicName = KafkaTopicName.fromString(topic)
+        const span = tracer.startSpan(`kafka-trail: eachBatch`, {
+          kind: SpanKind.CONSUMER,
+          attributes: {
+            'messaging.system': 'kafka',
+            'messaging.destination': topicNames,
+          },
+        })
 
-        const handler = this.#registeredHandlers.get(topicName)
+        await context.with(trace.setSpan(context.active(), span), async () => {
 
-        if (handler) {
+          const { batch: { topic, messages, partition } } = eachBatchPayload
 
-          const batchedValues = [];
-          let lastOffset: string | undefined = undefined
+          const topicName = KafkaTopicName.fromString(topic)
 
-          for (const message of messages) {
-            if (batchedValues.length < handler.topic.topicSettings.batchMessageSizeToConsume) {
-              if (message.value) {
+          const handler = this.#registeredHandlers.get(topicName)
+
+          if (handler) {
+
+            const batchedValues = [];
+            let lastOffset: string | undefined = undefined
+
+            for (const message of messages) {
+              if (batchedValues.length < handler.topic.topicSettings.batchMessageSizeToConsume) {
+                if (message.value) {
                 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-                const decodedMessage: object = handler.topic.decode(message.value);
-                batchedValues.push(decodedMessage);
-                lastOffset = message.offset;
+                  const decodedMessage: object = handler.topic.decode(message.value);
+                  batchedValues.push(decodedMessage);
+                  lastOffset = message.offset;
+                }
+              } else {
+                break;
               }
-            } else {
-              break;
+            }
+
+            await handler.run(batchedValues, this.#ctx, this, {
+              partition,
+              lastOffset,
+            })
+
+            if (lastOffset) {
+              eachBatchPayload.resolveOffset(lastOffset)
             }
           }
 
-          await handler.run(batchedValues, this.#ctx, this, {
-            partition,
-            lastOffset,
-          })
-
-          if (lastOffset) {
-            eachBatchPayload.resolveOffset(lastOffset)
-          }
-        }
-
-        await eachBatchPayload.heartbeat()
+          await eachBatchPayload.heartbeat()
+        })
       },
     })
   }
