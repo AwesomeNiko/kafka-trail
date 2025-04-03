@@ -134,6 +134,7 @@ class KTMessageQueue<Ctx extends object> {
           }
 
           await eachBatchPayload.heartbeat()
+          span.end()
         })
       },
     })
