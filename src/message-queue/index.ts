@@ -1,3 +1,5 @@
+import { clearInterval } from "node:timers";
+
 import { context, SpanKind, trace } from "@opentelemetry/api";
 import { pino } from "pino";
 
@@ -107,6 +109,10 @@ class KTMessageQueue<Ctx extends object> {
 
           if (handler) {
 
+            const heartBeatInterval = setInterval(async () => {
+              await eachBatchPayload.heartbeat()
+            }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * 0.1))
+
             const batchedValues = [];
             let lastOffset: string | undefined = undefined
 
@@ -127,6 +133,8 @@ class KTMessageQueue<Ctx extends object> {
               partition,
               lastOffset,
             })
+
+            clearInterval(heartBeatInterval)
 
             if (lastOffset) {
               eachBatchPayload.resolveOffset(lastOffset)

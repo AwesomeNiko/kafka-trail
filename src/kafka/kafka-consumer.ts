@@ -22,6 +22,7 @@ export type KTKafkaConsumerConfig = {
 class KTKafkaConsumer extends KTKafkaBroker {
   #isConnected = false;
   #logger: pino.Logger;
+  heartBeatInterval: number;
 
   consumer: Kafka.Consumer
 
@@ -49,12 +50,12 @@ class KTKafkaConsumer extends KTKafkaBroker {
 
     this.#subscribeRetry.retries = ifNanUseDefaultNumber(subscribeRetries, 30);
     this.#subscribeRetry.interval = ifNanUseDefaultNumber(subscribeRetryInterval, 2000)
-    const hbInterval = ifNanUseDefaultNumber(heartbeatInterval, 30)
+    this.heartBeatInterval = ifNanUseDefaultNumber(heartbeatInterval, 30)
 
     this.consumer = this._kafka.consumer({
       groupId: consumerGroupId,
       allowAutoTopicCreation: false,
-      heartbeatInterval: hbInterval,
+      heartbeatInterval: this.heartBeatInterval,
     });
   }
 

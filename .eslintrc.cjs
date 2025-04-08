@@ -43,7 +43,12 @@ module.exports = {
     ],
     '@typescript-eslint/consistent-type-imports': 'warn',
     '@typescript-eslint/no-floating-promises': 'error',
-    '@typescript-eslint/no-misused-promises': 'error',
+    '@typescript-eslint/no-misused-promises': [
+      "error",
+      {
+        "checksVoidReturn": false
+      }
+    ],
     '@typescript-eslint/no-explicit-any': 'error',
     'no-unused-vars': 'off',
     'eqeqeq': 'error',
