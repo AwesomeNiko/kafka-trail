@@ -50,7 +50,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
 
     this.#subscribeRetry.retries = ifNanUseDefaultNumber(subscribeRetries, 30);
     this.#subscribeRetry.interval = ifNanUseDefaultNumber(subscribeRetryInterval, 2000)
-    this.heartBeatInterval = ifNanUseDefaultNumber(heartbeatInterval, 30)
+    this.heartBeatInterval = ifNanUseDefaultNumber(heartbeatInterval, 5000)
 
     this.consumer = this._kafka.consumer({
       groupId: consumerGroupId,
