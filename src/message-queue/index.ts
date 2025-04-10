@@ -111,7 +111,7 @@ class KTMessageQueue<Ctx extends object> {
 
             const heartBeatInterval = setInterval(async () => {
               await eachBatchPayload.heartbeat()
-            }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * 0.1))
+            }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor))
 
             const batchedValues = [];
             let lastOffset: string | undefined = undefined

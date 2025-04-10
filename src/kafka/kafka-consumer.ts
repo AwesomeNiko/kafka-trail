@@ -16,6 +16,7 @@ export type KTKafkaConsumerConfig = {
     subscribeRetryInterval?: number;
     heartbeatInterval?: number;
     partitionsConsumedConcurrently?: number
+    heartbeatEarlyFactor?: number
   }
 } & KafkaBrokerConfig
 
@@ -31,6 +32,8 @@ class KTKafkaConsumer extends KTKafkaBroker {
     retries: 50,
   };
 
+  heartbeatEarlyFactor: number = 0.1
+
   constructor(params: KafkaWithLogger<KTKafkaConsumerConfig>) {
     super(params);
 
@@ -39,6 +42,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       subscribeRetries,
       subscribeRetryInterval,
       heartbeatInterval,
+      heartbeatEarlyFactor,
     } = params.kafkaSettings;
 
     if (!consumerGroupId) {
@@ -51,6 +55,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
     this.#subscribeRetry.retries = ifNanUseDefaultNumber(subscribeRetries, 30);
     this.#subscribeRetry.interval = ifNanUseDefaultNumber(subscribeRetryInterval, 2000)
     this.heartBeatInterval = ifNanUseDefaultNumber(heartbeatInterval, 5000)
+    this.heartbeatEarlyFactor = ifNanUseDefaultNumber(heartbeatEarlyFactor, 0.1)
 
     this.consumer = this._kafka.consumer({
       groupId: consumerGroupId,
