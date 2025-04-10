@@ -11,6 +11,8 @@ export type KTRun<Payload extends object, Ctx extends object> = (
   kafkaTopicParams: {
     partition?: number
     lastOffset?: string | undefined
+    heartBeat?: () => void
+    resolveOffset?: (offset: string) => void
   }) => Promise<void>
 
 export type KTHandler<Payload extends object, Ctx extends object> = {

@@ -132,6 +132,8 @@ class KTMessageQueue<Ctx extends object> {
             await handler.run(batchedValues, this.#ctx, this, {
               partition,
               lastOffset,
+              heartBeat: () => eachBatchPayload.heartbeat(),
+              resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
             })
 
             clearInterval(heartBeatInterval)

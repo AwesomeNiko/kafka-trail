@@ -17,6 +17,8 @@ export type KTKafkaConsumerConfig = {
     heartbeatInterval?: number;
     partitionsConsumedConcurrently?: number
     heartbeatEarlyFactor?: number
+    sessionTimeout?: number;
+    maxWaitTimeInMs?: number;
   }
 } & KafkaBrokerConfig
 
@@ -43,6 +45,8 @@ class KTKafkaConsumer extends KTKafkaBroker {
       subscribeRetryInterval,
       heartbeatInterval,
       heartbeatEarlyFactor,
+      sessionTimeout,
+      maxWaitTimeInMs,
     } = params.kafkaSettings;
 
     if (!consumerGroupId) {
@@ -57,10 +61,15 @@ class KTKafkaConsumer extends KTKafkaBroker {
     this.heartBeatInterval = ifNanUseDefaultNumber(heartbeatInterval, 5000)
     this.heartbeatEarlyFactor = ifNanUseDefaultNumber(heartbeatEarlyFactor, 0.1)
 
+    const maxWaitTimeInMsParam = ifNanUseDefaultNumber(maxWaitTimeInMs, 5000)
+    const sessionTimeoutParam = ifNanUseDefaultNumber(sessionTimeout, 60000)
+
     this.consumer = this._kafka.consumer({
       groupId: consumerGroupId,
       allowAutoTopicCreation: false,
       heartbeatInterval: this.heartBeatInterval,
+      sessionTimeout: sessionTimeoutParam,
+      maxWaitTimeInMs: maxWaitTimeInMsParam,
     });
   }
 
