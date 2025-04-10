@@ -51,7 +51,7 @@ class KTMessageQueue<Ctx extends object> {
     await this.#ktProducer.init();
   }
 
-  async initConsumer(params: KTKafkaConsumerConfig) {
+  async initConsumer(params: KTKafkaConsumerConfig, batchConsuming = false) {
     const registeredHandlers = [...this.#registeredHandlers.values()]
 
     if (registeredHandlers.length === 0) {
@@ -60,7 +60,12 @@ class KTMessageQueue<Ctx extends object> {
     
     this.#ktConsumer = new KTKafkaConsumer({ ...params, logger: this.#ctx.logger });
     await this.#ktConsumer.init();
-    await this.#subscribeAll()
+
+    if (batchConsuming) {
+      await this.#subscribeAll()
+    } else {
+      await this.#subscribeAllEachMessages()
+    }
   }
 
   async destroyAll() {
@@ -80,6 +85,61 @@ class KTMessageQueue<Ctx extends object> {
     if (this.#ktConsumer) {
       await this.#ktConsumer.destroy();
     }
+  }
+
+  async #subscribeAllEachMessages(){
+    const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
+    await this.#ktConsumer.subscribeTopic(topicNames)
+    await this.#ktConsumer.consumer.run({
+      partitionsConsumedConcurrently: 1,
+      eachMessage: async (eachMessagePayload) => {
+        const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
+
+        const span = tracer.startSpan(`kafka-trail: eachBatch`, {
+          kind: SpanKind.CONSUMER,
+          attributes: {
+            'messaging.system': 'kafka',
+            'messaging.destination': topicNames,
+          },
+        })
+
+        await context.with(trace.setSpan(context.active(), span), async () => {
+
+          const { topic, message, partition }  = eachMessagePayload
+
+          const topicName = KafkaTopicName.fromString(topic)
+
+          const handler = this.#registeredHandlers.get(topicName)
+
+          if (handler) {
+
+            const heartBeatInterval = setInterval(async () => {
+              await eachMessagePayload.heartbeat()
+            }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor))
+
+            const batchedValues = [];
+            let lastOffset: string | undefined = undefined
+
+            if (message.value) {
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+              const decodedMessage: object = handler.topic.decode(message.value);
+              batchedValues.push(decodedMessage);
+              lastOffset = message.offset;
+            }
+
+            await handler.run(batchedValues, this.#ctx, this, {
+              partition,
+              lastOffset,
+              heartBeat: () => eachMessagePayload.heartbeat(),
+            })
+
+            clearInterval(heartBeatInterval)
+          }
+
+          span.end()
+        })
+      },
+    })
   }
 
   async #subscribeAll() {
