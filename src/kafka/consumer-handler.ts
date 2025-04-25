@@ -1,5 +1,3 @@
-import { context, SpanKind, trace } from "@opentelemetry/api";
-
 import type { KTMessageQueue } from "../message-queue/index.js";
 
 import type { KTTopicEvent } from "./topic.js";
@@ -52,26 +50,6 @@ export type KTHandler<Payload extends object, Ctx extends object> = {
 export const KTHandler = <Payload extends object, Ctx extends object>(params: KTHandler<Payload, Ctx>): KTHandler<Payload, Ctx> => {
   return {
     topic: params.topic,
-    run: async (payload, ctx, publisher, kafkaTopicParams) => {
-      const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-      const { partition, lastOffset } = kafkaTopicParams
-
-      const span = tracer.startSpan(`kafka-trail: handler ${params.topic.topicSettings.topic}`, {
-        kind: SpanKind.CONSUMER,
-        attributes: {
-          'messaging.system': 'kafka',
-          'messaging.destination': params.topic.topicSettings.topic,
-          'messaging.kafka.partition': partition,
-          'messaging.kafka.offset': lastOffset,
-          'messaging.kafka.payload': JSON.stringify(payload),
-        },
-      })
-
-      await context.with(trace.setSpan(context.active(), span), async () => {
-        await params.run(payload, ctx, publisher, kafkaTopicParams)
-        span.end()
-      })
-    },
+    run: params.run,
   }
 }

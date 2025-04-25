@@ -112,12 +112,11 @@ class KTMessageQueue<Ctx extends object> {
           const handler = this.#registeredHandlers.get(topicName)
 
           if (handler) {
-
             const heartBeatInterval = setInterval(async () => {
               await eachMessagePayload.heartbeat()
             }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor))
 
-            const batchedValues = [];
+            const batchedValues: object[] = [];
             let lastOffset: string | undefined = undefined
 
             if (message.value) {
@@ -127,10 +126,26 @@ class KTMessageQueue<Ctx extends object> {
               lastOffset = message.offset;
             }
 
-            await handler.run(batchedValues, this.#ctx, this, {
-              partition,
-              lastOffset,
-              heartBeat: () => eachMessagePayload.heartbeat(),
+            const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
+
+            const span = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
+              kind: SpanKind.CONSUMER,
+              attributes: {
+                'messaging.system': 'kafka',
+                'messaging.destination': topicName,
+                'messaging.kafka.partition': partition,
+                'messaging.kafka.offset': lastOffset,
+                'messaging.kafka.payload': JSON.stringify(batchedValues),
+              },
+            })
+
+            await context.with(trace.setSpan(context.active(), span), async () => {
+              await handler.run(batchedValues, this.#ctx, this, {
+                partition,
+                lastOffset,
+                heartBeat: () => eachMessagePayload.heartbeat(),
+              })
+              span.end()
             })
 
             clearInterval(heartBeatInterval)
@@ -173,7 +188,7 @@ class KTMessageQueue<Ctx extends object> {
               await eachBatchPayload.heartbeat()
             }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor))
 
-            const batchedValues = [];
+            const batchedValues: object[] = [];
             let lastOffset: string | undefined = undefined
 
             for (const message of messages) {
@@ -189,11 +204,27 @@ class KTMessageQueue<Ctx extends object> {
               }
             }
 
-            await handler.run(batchedValues, this.#ctx, this, {
-              partition,
-              lastOffset,
-              heartBeat: () => eachBatchPayload.heartbeat(),
-              resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
+            const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
+
+            const span = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
+              kind: SpanKind.CONSUMER,
+              attributes: {
+                'messaging.system': 'kafka',
+                'messaging.destination': topicName,
+                'messaging.kafka.partition': partition,
+                'messaging.kafka.offset': lastOffset,
+                'messaging.kafka.payload': JSON.stringify(batchedValues),
+              },
+            })
+
+            await context.with(trace.setSpan(context.active(), span), async () => {
+              await handler.run(batchedValues, this.#ctx, this, {
+                partition,
+                lastOffset,
+                heartBeat: () => eachBatchPayload.heartbeat(),
+                resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
+              })
+              span.end()
             })
 
             clearInterval(heartBeatInterval)
