@@ -8,7 +8,7 @@ const roundRobin = () => {
       return roundRobinNumber()(params)
     }
 
-    const specifiedPartitionNumber = msgNumber * params.partitionMetadata.length
+    const specifiedPartitionNumber = msgNumber % params.partitionMetadata.length
 
     if (msgNumber > 0 && specifiedPartitionNumber === 0) {
       msgNumber = 1
