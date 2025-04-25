@@ -232,6 +232,7 @@ class KTMessageQueue<Ctx extends object> {
             if (lastOffset) {
               eachBatchPayload.resolveOffset(lastOffset)
             }
+
           }
 
           await eachBatchPayload.heartbeat()

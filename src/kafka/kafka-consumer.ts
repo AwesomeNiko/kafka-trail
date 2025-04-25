@@ -19,6 +19,8 @@ export type KTKafkaConsumerConfig = {
     heartbeatEarlyFactor?: number
     sessionTimeout?: number;
     maxWaitTimeInMs?: number;
+    maxBytesPerPartition?: number;
+    maxInFlightRequests?: number;
   }
 } & KafkaBrokerConfig
 
@@ -47,6 +49,8 @@ class KTKafkaConsumer extends KTKafkaBroker {
       heartbeatEarlyFactor,
       sessionTimeout,
       maxWaitTimeInMs,
+      maxBytesPerPartition,
+      maxInFlightRequests,
     } = params.kafkaSettings;
 
     if (!consumerGroupId) {
@@ -63,6 +67,8 @@ class KTKafkaConsumer extends KTKafkaBroker {
 
     const maxWaitTimeInMsParam = ifNanUseDefaultNumber(maxWaitTimeInMs, 5000)
     const sessionTimeoutParam = ifNanUseDefaultNumber(sessionTimeout, 60000)
+    const maxBytesPerPartitionParam = ifNanUseDefaultNumber(maxBytesPerPartition, 10485 * 2)
+    const maxInFlightRequestsParam = ifNanUseDefaultNumber(maxInFlightRequests, 1)
 
     this.consumer = this._kafka.consumer({
       groupId: consumerGroupId,
@@ -70,6 +76,8 @@ class KTKafkaConsumer extends KTKafkaBroker {
       heartbeatInterval: this.heartBeatInterval,
       sessionTimeout: sessionTimeoutParam,
       maxWaitTimeInMs: maxWaitTimeInMsParam,
+      maxBytesPerPartition:maxBytesPerPartitionParam,
+      maxInFlightRequests: maxInFlightRequestsParam,
     });
   }
 
