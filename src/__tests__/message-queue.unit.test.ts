@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { KTMessageQueue } from "../message-queue/index.ts";
-import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
-import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
-import { KTTopic } from "../kafka/topic.ts";
+
 import { KTHandler } from "../kafka/consumer-handler.ts";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
-import { createKafkaMocks } from "./mocks/create-mocks.ts";
+import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
+import { KTTopic } from "../kafka/topic.ts";
+import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { KTMessageQueue } from "../message-queue/index.ts";
 
+import { createKafkaMocks } from "./mocks/create-mocks.ts";
 
 // @ts-expect-error too much return arguments
 const kafkaProducerInitMock = jest.spyOn(KTKafkaProducer.prototype, 'init').mockImplementation(jest.fn);
@@ -35,8 +36,8 @@ describe("KTMessageQueue test", () => {
       kafkaSettings: {
         brokerUrls: ['localhost'],
         clientId: KafkaClientId.fromString("broker-client-id-1"),
-        connectionTimeout: 30000
-      }
+        connectionTimeout: 30000,
+      },
     });
 
     expect(kafkaProducerInitMock).toHaveBeenCalledTimes(1);
@@ -53,7 +54,7 @@ describe("KTMessageQueue test", () => {
 
     const testExampleTopicHandler = KTHandler({
       topic: TestExampleTopic,
-      run: async (payload) => {
+      run: (payload) => {
         const data = payload[0]
 
         if (!data) {
@@ -65,7 +66,7 @@ describe("KTMessageQueue test", () => {
     const mq = new KTMessageQueue();
 
     const { clearAll } = createKafkaMocks({
-      topicName: TestExampleTopic.topicSettings.topic
+      topicName: TestExampleTopic.topicSettings.topic,
     });
 
     mq.registerHandlers([testExampleTopicHandler]);
@@ -75,8 +76,8 @@ describe("KTMessageQueue test", () => {
         brokerUrls: ['localhost'],
         clientId: KafkaClientId.fromString("broker-client-id-1"),
         connectionTimeout: 30000,
-        consumerGroupId: 'group - ' + new Date().toString()
-      }
+        consumerGroupId: 'group - ' + new Date().toString(),
+      },
     })
 
     expect(kafkaConsumerInitMock).toHaveBeenCalledTimes(1);

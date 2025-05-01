@@ -51,7 +51,7 @@ class KTMessageQueue<Ctx extends object> {
     await this.#ktProducer.init();
   }
 
-  async initConsumer(params: KTKafkaConsumerConfig, batchConsuming = false) {
+  async initConsumer(params: KTKafkaConsumerConfig) {
     const registeredHandlers = [...this.#registeredHandlers.values()]
 
     if (registeredHandlers.length === 0) {
@@ -61,7 +61,7 @@ class KTMessageQueue<Ctx extends object> {
     this.#ktConsumer = new KTKafkaConsumer({ ...params, logger: this.#ctx.logger });
     await this.#ktConsumer.init();
 
-    if (batchConsuming) {
+    if (params.kafkaSettings.batchConsuming) {
       await this.#subscribeAll()
     } else {
       await this.#subscribeAllEachMessages()

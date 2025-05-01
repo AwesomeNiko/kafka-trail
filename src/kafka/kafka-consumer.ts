@@ -21,6 +21,7 @@ export type KTKafkaConsumerConfig = {
     maxWaitTimeInMs?: number;
     maxBytesPerPartition?: number;
     maxInFlightRequests?: number;
+    batchConsuming?: boolean
   }
 } & KafkaBrokerConfig
 

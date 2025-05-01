@@ -7,9 +7,9 @@ export type KTRun<Payload extends object, Ctx extends object> = (
   ctx: Ctx,
   publisher: Pick<KTMessageQueue<Ctx>, 'publishSingleMessage'>,
   kafkaTopicParams: {
-    partition?: number
-    lastOffset?: string | undefined
-    heartBeat?: () => void
+    heartBeat: () => void
+    partition: number
+    lastOffset: string | undefined
     resolveOffset?: (offset: string) => void
   }) => Promise<void>
 
