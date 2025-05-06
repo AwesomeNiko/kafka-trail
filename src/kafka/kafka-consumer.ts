@@ -22,6 +22,7 @@ export type KTKafkaConsumerConfig = {
     maxBytesPerPartition?: number;
     maxInFlightRequests?: number;
     batchConsuming?: boolean
+    rebalanceTimeout?: number;
   }
 } & KafkaBrokerConfig
 
@@ -52,6 +53,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxWaitTimeInMs,
       maxBytesPerPartition,
       maxInFlightRequests,
+      rebalanceTimeout,
     } = params.kafkaSettings;
 
     if (!consumerGroupId) {
@@ -70,6 +72,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
     const sessionTimeoutParam = ifNanUseDefaultNumber(sessionTimeout, 60000)
     const maxBytesPerPartitionParam = ifNanUseDefaultNumber(maxBytesPerPartition, 10485 * 2)
     const maxInFlightRequestsParam = ifNanUseDefaultNumber(maxInFlightRequests, 1)
+    const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
 
     this.consumer = this._kafka.consumer({
       groupId: consumerGroupId,
@@ -79,6 +82,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxWaitTimeInMs: maxWaitTimeInMsParam,
       maxBytesPerPartition:maxBytesPerPartitionParam,
       maxInFlightRequests: maxInFlightRequestsParam,
+      rebalanceTimeout: rebalanceTimeoutParam,
     });
   }
 
