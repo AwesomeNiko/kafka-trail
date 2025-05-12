@@ -1,4 +1,6 @@
 import type Kafka from "kafkajs";
+import type { PartitionAssigner } from "kafkajs";
+import { PartitionAssigners } from "kafkajs";
 import type pino from "pino";
 
 import { ConsumerSubscribeError } from "../custom-errors/kafka-errors.js";
@@ -23,6 +25,7 @@ export type KTKafkaConsumerConfig = {
     maxInFlightRequests?: number;
     batchConsuming?: boolean
     rebalanceTimeout?: number;
+    partitionAssignerFn? : PartitionAssigner
   }
 } & KafkaBrokerConfig
 
@@ -54,6 +57,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxBytesPerPartition,
       maxInFlightRequests,
       rebalanceTimeout,
+      partitionAssignerFn,
     } = params.kafkaSettings;
 
     if (!consumerGroupId) {
@@ -74,6 +78,12 @@ class KTKafkaConsumer extends KTKafkaBroker {
     const maxInFlightRequestsParam = ifNanUseDefaultNumber(maxInFlightRequests, 1)
     const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
 
+    const partitionsAssignersFunctions = [PartitionAssigners.roundRobin]
+
+    if (partitionAssignerFn) {
+      partitionsAssignersFunctions.unshift(partitionAssignerFn)
+    }
+
     this.consumer = this._kafka.consumer({
       groupId: consumerGroupId,
       allowAutoTopicCreation: false,
@@ -83,6 +93,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxBytesPerPartition:maxBytesPerPartitionParam,
       maxInFlightRequests: maxInFlightRequestsParam,
       rebalanceTimeout: rebalanceTimeoutParam,
+      partitionAssigners: partitionsAssignersFunctions,
     });
   }
 
