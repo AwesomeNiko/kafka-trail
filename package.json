@@ -1,6 +1,6 @@
 {
   "name": "@awesomeniko/kafka-trail",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "A Node.js library for managing message queue with Kafka",
   "type": "module",
   "publishConfig": {

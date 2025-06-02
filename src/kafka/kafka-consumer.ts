@@ -25,6 +25,7 @@ export type KTKafkaConsumerConfig = {
     maxInFlightRequests?: number;
     batchConsuming?: boolean
     rebalanceTimeout?: number;
+    maxBytes?: number;
     partitionAssignerFn? : PartitionAssigner
   }
 } & KafkaBrokerConfig
@@ -57,6 +58,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxBytesPerPartition,
       maxInFlightRequests,
       rebalanceTimeout,
+      maxBytes,
       partitionAssignerFn,
     } = params.kafkaSettings;
 
@@ -74,9 +76,10 @@ class KTKafkaConsumer extends KTKafkaBroker {
 
     const maxWaitTimeInMsParam = ifNanUseDefaultNumber(maxWaitTimeInMs, 5000)
     const sessionTimeoutParam = ifNanUseDefaultNumber(sessionTimeout, 60000)
-    const maxBytesPerPartitionParam = ifNanUseDefaultNumber(maxBytesPerPartition, 10485 * 2)
+    const maxBytesPerPartitionParam = ifNanUseDefaultNumber(maxBytesPerPartition, 10_485_760)
     const maxInFlightRequestsParam = ifNanUseDefaultNumber(maxInFlightRequests, 1)
     const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
+    const maxBytesParam = ifNanUseDefaultNumber(maxBytes, 10_485_760)
 
     const partitionsAssignersFunctions = [PartitionAssigners.roundRobin]
 
@@ -94,6 +97,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxInFlightRequests: maxInFlightRequestsParam,
       rebalanceTimeout: rebalanceTimeoutParam,
       partitionAssigners: partitionsAssignersFunctions,
+      maxBytes: maxBytesParam,
     });
   }
 
