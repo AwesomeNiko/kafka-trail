@@ -58,8 +58,10 @@ describe("KTMessageQueue test", () => {
         const data = payload[0]
 
         if (!data) {
-          return
+          return Promise.resolve()
         }
+
+        return Promise.resolve()
       },
     })
 

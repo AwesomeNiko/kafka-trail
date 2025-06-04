@@ -11,6 +11,7 @@ import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import type { KTTopicPayloadWithMeta, KTTopicEvent } from "../kafka/topic.js";
 import { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
 
 class KTMessageQueue<Ctx extends object> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,8 +20,17 @@ class KTMessageQueue<Ctx extends object> {
   #ktConsumer!: KTKafkaConsumer;
   #logger: Console | pino.Logger = console;
   #ctx: Ctx & KafkaLogger
-
-  constructor(params?: {ctx: () => Ctx & { logger?: pino.Logger }}) {
+  // Trace settings
+  #addPayloadToTrace: boolean = false;
+  
+  constructor(params?: {
+    ctx: () => Ctx & {
+      logger?: pino.Logger
+    },
+    tracingSettings: {
+      addPayloadToTrace: boolean
+    }
+  }) {
     let ctx = params?.ctx()
 
     if (!ctx) {
@@ -32,6 +42,7 @@ class KTMessageQueue<Ctx extends object> {
     }
 
     this.#ctx = ctx as Ctx & KafkaLogger
+    this.#addPayloadToTrace = params?.tracingSettings.addPayloadToTrace ?? false
   }
 
   getConsumer() {
@@ -95,7 +106,7 @@ class KTMessageQueue<Ctx extends object> {
       eachMessage: async (eachMessagePayload) => {
         const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
-        const span = tracer.startSpan(`kafka-trail: eachBatch`, {
+        const span = tracer.startSpan(`kafka-trail: eachMessage`, {
           kind: SpanKind.CONSUMER,
           attributes: {
             'messaging.system': 'kafka',
@@ -112,10 +123,6 @@ class KTMessageQueue<Ctx extends object> {
           const handler = this.#registeredHandlers.get(topicName)
 
           if (handler) {
-            const heartBeatInterval = setInterval(async () => {
-              await eachMessagePayload.heartbeat()
-            }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor))
-
             const batchedValues: object[] = [];
             let lastOffset: string | undefined = undefined
 
@@ -128,15 +135,19 @@ class KTMessageQueue<Ctx extends object> {
 
             const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
+            const attributes = createHandlerTraceAttributes({
+              topicName,
+              partition,
+              lastOffset,
+              batchedValues,
+              opts: {
+                addPayloadToTrace: this.#addPayloadToTrace,
+              },
+            })
+
             const span = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
               kind: SpanKind.CONSUMER,
-              attributes: {
-                'messaging.system': 'kafka',
-                'messaging.destination': topicName,
-                'messaging.kafka.partition': partition,
-                'messaging.kafka.offset': lastOffset,
-                'messaging.kafka.payload': JSON.stringify(batchedValues),
-              },
+              attributes,
             })
 
             await context.with(trace.setSpan(context.active(), span), async () => {
@@ -147,8 +158,6 @@ class KTMessageQueue<Ctx extends object> {
               })
               span.end()
             })
-
-            clearInterval(heartBeatInterval)
           }
 
           span.end()
@@ -206,15 +215,19 @@ class KTMessageQueue<Ctx extends object> {
 
             const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
+            const attributes = createHandlerTraceAttributes({
+              topicName,
+              partition,
+              lastOffset,
+              batchedValues,
+              opts: {
+                addPayloadToTrace: this.#addPayloadToTrace,
+              },
+            })
+
             const span = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
               kind: SpanKind.CONSUMER,
-              attributes: {
-                'messaging.system': 'kafka',
-                'messaging.destination': topicName,
-                'messaging.kafka.partition': partition,
-                'messaging.kafka.offset': lastOffset,
-                'messaging.kafka.payload': JSON.stringify(batchedValues),
-              },
+              attributes: attributes,
             })
 
             await context.with(trace.setSpan(context.active(), span), async () => {
