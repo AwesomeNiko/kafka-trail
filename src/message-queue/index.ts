@@ -22,7 +22,7 @@ class KTMessageQueue<Ctx extends object> {
   #ctx: Ctx & KafkaLogger
   // Trace settings
   #addPayloadToTrace: boolean = false;
-  
+
   constructor(params?: {
     ctx: () => Ctx & {
       logger?: pino.Logger
@@ -68,7 +68,7 @@ class KTMessageQueue<Ctx extends object> {
     if (registeredHandlers.length === 0) {
       throw new NoHandlersError('subscribe to consumer');
     }
-    
+
     this.#ktConsumer = new KTKafkaConsumer({ ...params, logger: this.#ctx.logger });
     await this.#ktConsumer.init();
 
@@ -192,7 +192,6 @@ class KTMessageQueue<Ctx extends object> {
           const handler = this.#registeredHandlers.get(topicName)
 
           if (handler) {
-
             const heartBeatInterval = setInterval(async () => {
               const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
@@ -205,13 +204,7 @@ class KTMessageQueue<Ctx extends object> {
               })
               await eachBatchPayload.heartbeat()
 
-              await context.with(trace.setSpan(context.active(), span), async () => {
-                await handler.run(batchedValues, this.#ctx, this, {
-                  partition,
-                  lastOffset,
-                  heartBeat: () => eachBatchPayload.heartbeat(),
-                  resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
-                })
+              context.with(trace.setSpan(context.active(), span), () => {
                 span.end()
               })
             }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor))
@@ -291,7 +284,7 @@ class KTMessageQueue<Ctx extends object> {
   getRegisteredHandler(topic: KafkaTopicName) {
     return this.#registeredHandlers.get(topic)
   }
-  
+
   registerHandlers<T extends object>(mqHandlers: KTHandler<T, Ctx & KafkaLogger>[]) {
     for (const handler of mqHandlers) {
       if (!this.#registeredHandlers.has(handler.topic.topicSettings.topic)) {
