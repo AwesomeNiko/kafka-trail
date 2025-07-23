@@ -12,13 +12,13 @@ import { createKafkaMocks } from "./mocks/create-mocks.ts";
 // @ts-expect-error too much return arguments
 const kafkaProducerInitMock = jest.spyOn(KTKafkaProducer.prototype, 'init').mockImplementation(jest.fn);
 // @ts-expect-error too much return arguments
-const kafkaConsumerInitMock = jest.spyOn(KTKafkaConsumer.prototype, 'init').mockImplementation(jest.fn);
-// @ts-expect-error too much return arguments
-const kafkaConsumerSubscribeTopicMock = jest.spyOn(KTKafkaConsumer.prototype, 'subscribeTopic').mockImplementation(jest.fn);
-// @ts-expect-error too much return arguments
 const kafkaProducerCreateTopicMock = jest.spyOn(KTKafkaProducer.prototype, 'createTopic').mockImplementation(jest.fn);
 // @ts-expect-error too much return arguments
 const kafkaProducerSendSingleMessageMock = jest.spyOn(KTKafkaProducer.prototype, 'sendSingleMessage').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
+const kafkaConsumerInitMock = jest.spyOn(KTKafkaConsumer.prototype, 'init').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
+const kafkaConsumerSubscribeTopicMock = jest.spyOn(KTKafkaConsumer.prototype, 'subscribeTopic').mockImplementation(jest.fn);
 
 describe("Consumer handlers test", () => {
   beforeEach(() => {
@@ -146,7 +146,7 @@ describe("Consumer handlers test", () => {
         if (Buffer.isBuffer(data)) {
           data = data.toString()
         }
-        
+
         const payload = JSON.parse(data) as {
           fieldForPayload: number
         }

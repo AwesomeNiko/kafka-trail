@@ -1,6 +1,6 @@
 import { clearInterval } from "node:timers";
 
-import { context, SpanKind, trace } from "@opentelemetry/api";
+import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { pino } from "pino";
 
 import { ArgumentIsRequired, NoHandlersError } from "../custom-errors/kafka-errors.js";
@@ -9,7 +9,7 @@ import type { KafkaBrokerConfig, KafkaLogger } from "../kafka/kafka-broker.js";
 import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
-import type { KTTopicPayloadWithMeta, KTTopicEvent } from "../kafka/topic.js";
+import type { KTTopicEvent, KTTopicPayloadWithMeta } from "../kafka/topic.js";
 import { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
 
@@ -296,11 +296,30 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   publishSingleMessage(topic: KTTopicPayloadWithMeta) {
-    return this.#ktProducer.sendSingleMessage({
-      topicName: topic.topicName,
-      message: topic.message,
-      messageKey: topic.messageKey,
-    }, topic.meta);
+    const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
+
+    const span = tracer.startSpan(`kafka-trail: publishSingleMessage ${topic.topicName}`, {
+      kind: SpanKind.PRODUCER,
+    })
+
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        const res = await this.#ktProducer.sendSingleMessage({
+          topicName: topic.topicName,
+          message: topic.message,
+          messageKey: topic.messageKey,
+        }, topic.meta);
+        span.end()
+
+        return res
+      } catch (error) {
+        span.recordException(error as Error)
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) })
+        span.end()
+        throw error
+      }
+    })
+
   }
 }
 
