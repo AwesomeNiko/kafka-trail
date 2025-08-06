@@ -1,23 +1,3 @@
-# Workflow
-
-## How to create enemy
-1. Choose what enemy type will be used for base. `scenes/enemies`
-2. Create specific enemy resource (goblin / bug / something else) in `resources/enemies`
-
-## How to spawn enemy
-1. Place spawner as level child. `scenes/spawner`.
-2. Configure spawner:
-    - Type:
-        - Outside viewport - spawning outside player viewport.
-          Distance controls by `Min Distance` / `Max Distance`
-        - Area - spawning enemies inside `RectangleShape2D` of `CollisionShape2D`
-        - Marker - spawning enemies on exactly position of `Marker2D`
-    - Mode:
-        - SIMULTANEOUS, `entries = [ {goblin,3}, {orc,1} ]` → spawns 3 goblins + 1 orc every interval.
-        - RANDOM_UNIFORM, `total_count = 2`, `entries = [goblin, orc, slime]` → spawns any 2 enemies chosen uniformly each tick.
-        - RANDOM_WEIGHTED, `total_count = 5`, `entries = [ {wolf, weight=5}, {bear, weight=1} ]` → about 5:1 wolves to bears each tick.
-
-
 # Kafka-trail - MessageQueue Library
 
 A Node.js library for managing message queues with Kafka, designed to simplify creating, using, and managing Kafka topics with producers and consumers.
