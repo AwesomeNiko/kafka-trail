@@ -1,5 +1,6 @@
 import type { KTMessageQueue } from "../message-queue/index.js";
 
+import type { KafkaLogger } from "./kafka-broker.js";
 import type { KTTopicEvent } from "./topic.js";
 
 export type KTRun<Payload extends object, Ctx extends object> = (
@@ -17,6 +18,8 @@ export type KTHandler<Payload extends object, Ctx extends object> = {
   topic: KTTopicEvent<Payload>
   run: KTRun<Payload, Ctx>
 }
+
+export type CtxWithKafka<T> = T & KafkaLogger
 
 /**
  * @example
@@ -47,7 +50,7 @@ export type KTHandler<Payload extends object, Ctx extends object> = {
  *   },
  * })
  */
-export const KTHandler = <Payload extends object, Ctx extends object>(params: KTHandler<Payload, Ctx>): KTHandler<Payload, Ctx> => {
+export const KTHandler = <Payload extends object, Ctx extends object>(params: KTHandler<Payload, KafkaLogger & Ctx>): KTHandler<Payload, KafkaLogger & Ctx> => {
   return {
     topic: params.topic,
     run: params.run,

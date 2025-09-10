@@ -5,6 +5,8 @@ import { KTTopic } from "./kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "./libs/branded-types/kafka/index.js";
 import { KTMessageQueue } from "./message-queue/index.js";
 
+export type { KTPayloadFromTopic, KTTopicEvent } from "./kafka/topic.js"
+
 export {
   KTMessageQueue,
   KTTopic,

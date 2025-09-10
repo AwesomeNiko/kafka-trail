@@ -31,6 +31,7 @@ export type KTTopicEvent<Payload extends object> = {
 };
 
 export type KTTopic<T extends object>= typeof KTTopic<T>
+export type KTPayloadFromTopic<T> = T extends KTTopicEvent<infer P> ? P : never;
 
 export const KTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<Payload>): KTTopicEvent<Payload>  => {
   const fn = (payload: Payload,
