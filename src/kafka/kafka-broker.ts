@@ -1,3 +1,4 @@
+import type { KafkaConfig } from "kafkajs";
 import KafkaJS from "kafkajs";
 import type pino from "pino";
 
@@ -16,6 +17,7 @@ type KTKafkaSettings = {
 
 export type KafkaBrokerConfig = {
   kafkaSettings: KTKafkaSettings
+  pureConfig: Pick<KafkaConfig, "ssl" | "sasl" | "authenticationTimeout" | "reauthenticationThreshold" | "requestTimeout" | "enforceRequestTimeout" | "retry" | "socketFactory" | "logLevel" | "logCreator">
 }
 
 export type KafkaLogger = {
@@ -44,6 +46,7 @@ class KTKafkaBroker {
       clientId,
       brokers: brokerUrls,
       connectionTimeout,
+      ...params.pureConfig,
     });
   }
 
