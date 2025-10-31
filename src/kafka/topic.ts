@@ -8,6 +8,7 @@ import { ktEncode , ktDecode  } from "../libs/helpers/default-data-parser.js";
 export type KTTopicSettings = ITopicConfig & {
   topic: KafkaTopicName
   batchMessageSizeToConsume: number
+  numPartitions: number
 }
 
 export type KTTopicPayload = {

@@ -1,4 +1,4 @@
-import type { ICustomPartitioner, IHeaders, IResourceConfigEntry } from "kafkajs";
+import type { ICustomPartitioner, IHeaders } from "kafkajs";
 import Kafka, { CompressionTypes } from "kafkajs";
 import type pino from "pino";
 
@@ -45,38 +45,37 @@ class KTKafkaProducer extends KTKafkaBroker {
     return Promise.all([this.#admin.disconnect(), this.#producer.disconnect()]);
   }
 
-  async createTopic(topicName: string, partitions = 1, customConfigArray: IResourceConfigEntry[] = []): Promise<void> {
+  async createTopic(topicConfig: Kafka.ITopicConfig): Promise<void> {
     this.#logger.info({
-      topicName,
-      partitions,
-      customConfigArray,
+      topicName: topicConfig.topic,
+      topicConfig,
     }, "Resolving topics...");
 
     try {
-      const topicMetadata = await this.#admin.fetchTopicMetadata({ topics: [topicName] });
-      
+      const topicMetadata = await this.#admin.fetchTopicMetadata({ topics: [topicConfig.topic] });
+
       const currentTopic = topicMetadata.topics.find(
-        (topicMetadata) => topicMetadata.name === topicName,
+        (topicMetadata) => topicMetadata.name === topicConfig.topic,
       );
 
       if (!currentTopic) {
         throw new Kafka.KafkaJSProtocolError('Topic not found')
       }
 
-      if (partitions === currentTopic.partitions.length) {
+      if (topicConfig.numPartitions === currentTopic.partitions.length) {
         return;
       }
 
-      if (partitions > currentTopic.partitions.length) {
+      if ((topicConfig.numPartitions || 0) > currentTopic.partitions.length) {
         await this.#admin.createPartitions({
           topicPartitions: [
             {
-              topic: topicName,
-              count: partitions,
+              topic: topicConfig.topic,
+              count: topicConfig.numPartitions || 0,
             },
           ],
         });
-        this.#logger.info(`Expanded partitions for ${topicName} topic`);
+        this.#logger.info(`Expanded partitions for ${topicConfig.topic} topic`);
       } else {
         throw new UnableDecreasePartitionsError();
       }
@@ -85,13 +84,7 @@ class KTKafkaProducer extends KTKafkaBroker {
     } catch (e) {
       if (e instanceof Kafka.KafkaJSProtocolError) {
         await this.#admin.createTopics({
-          topics: [
-            {
-              topic: topicName,
-              numPartitions: partitions,
-              configEntries: customConfigArray,
-            },
-          ],
+          topics: [topicConfig],
           waitForLeaders: true,
         });
       } else {
@@ -103,7 +96,7 @@ class KTKafkaProducer extends KTKafkaBroker {
 
   async sendSingleMessage(params: { topicName: KafkaTopicName, message: string, messageKey: KafkaMessageKey  }, headers: IHeaders = {}) {
     const { topicName, messageKey, message } = params;
-  
+
     await this.#producer.send({
       topic: topicName,
       compression: CompressionTypes.LZ4,

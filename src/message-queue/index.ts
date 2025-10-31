@@ -273,11 +273,7 @@ class KTMessageQueue<Ctx extends object> {
     }
 
     for (const topicEvent of topicEvents) {
-      await this.#ktProducer.createTopic(
-        topicEvent.topicSettings.topic,
-        topicEvent.topicSettings.numPartitions,
-        topicEvent.topicSettings.configEntries,
-      );
+      await this.#ktProducer.createTopic(topicEvent.topicSettings);
     }
   }
 
