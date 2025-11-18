@@ -326,6 +326,45 @@ const TestExampleTopic = KTTopic<MyModel>({
 })
 ```
 
+### Sending batch messages
+You can send batch messages instead of sending one by one, but it required a little different usage. Example:
+
+```javascript
+// Create topic fn
+const TestExampleTopic = KTTopicBatch({
+  topic: KafkaTopicName.fromString('test.example'),
+  numPartitions: 1,
+  batchMessageSizeToConsume: 10,
+})
+
+// Create or use topic
+await messageQueue.initTopics([
+  TestExampleTopic,
+])
+
+// Use publishSingleMessage method to publish message
+const payload = TestExampleTopic([{
+  value: {
+    test: 1,
+    test2: 2,
+  },
+  key: '1',
+}, {
+  value: {
+    test: 3,
+    test2: 4,
+  },
+  key: '2',
+}, {
+  value: {
+    test: 5,
+    test2: 6,
+  },
+  key: '3',
+}])
+
+await messageQueue.publishBatchMessages(payload)
+```
 
 
 ## Contributing

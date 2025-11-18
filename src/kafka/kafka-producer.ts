@@ -8,6 +8,7 @@ import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafk
 import { CustomPartitioner } from "./custom-partitioner.js";
 import type { KafkaBrokerConfig, KafkaWithLogger } from "./kafka-broker.js";
 import { KTKafkaBroker } from "./kafka-broker.js";
+import type { KTTopicBatchPayload } from "./topic-batch.ts";
 
 type KTKafkaProducerConfig = {
   createPartitioner?: ICustomPartitioner
@@ -94,8 +95,8 @@ class KTKafkaProducer extends KTKafkaBroker {
     }
   }
 
-  async sendSingleMessage(params: { topicName: KafkaTopicName, message: string, messageKey: KafkaMessageKey  }, headers: IHeaders = {}) {
-    const { topicName, messageKey, message } = params;
+  async sendSingleMessage(params: { topicName: KafkaTopicName, value: string, messageKey: KafkaMessageKey, headers: IHeaders  }) {
+    const { topicName, messageKey, value, headers } = params;
 
     await this.#producer.send({
       topic: topicName,
@@ -103,10 +104,22 @@ class KTKafkaProducer extends KTKafkaBroker {
       messages: [
         {
           key: messageKey ?? null,
-          value: message,
+          value,
           headers,
         },
       ],
+    });
+  }
+
+  async sendBatchMessages(params: KTTopicBatchPayload) {
+    const { topicName, messages } = params;
+
+    console.log("Send batch messages - ", messages)
+
+    await this.#producer.send({
+      topic: topicName,
+      compression: CompressionTypes.LZ4,
+      messages,
     });
   }
 }

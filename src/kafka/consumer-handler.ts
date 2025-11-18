@@ -1,6 +1,7 @@
 import type { KTMessageQueue } from "../message-queue/index.js";
 
 import type { KafkaLogger } from "./kafka-broker.js";
+import type { KTTopicBatchEvent } from "./topic-batch.ts";
 import type { KTTopicEvent } from "./topic.js";
 
 export type KTRun<Payload extends object, Ctx extends object> = (
@@ -15,7 +16,7 @@ export type KTRun<Payload extends object, Ctx extends object> = (
   }) => Promise<void>
 
 export type KTHandler<Payload extends object, Ctx extends object> = {
-  topic: KTTopicEvent<Payload>
+  topic: KTTopicEvent<Payload> | KTTopicBatchEvent<Payload>
   run: KTRun<Payload, Ctx>
 }
 

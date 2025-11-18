@@ -18,9 +18,9 @@ export type KTTopicPayload = {
 }
 
 type KTTopicMeta = {
-  meta?: {
+  meta: IHeaders & {
     traceId?: string
-  } & object & IHeaders
+  }
 }
 
 export type KTTopicPayloadWithMeta = KTTopicPayload & KTTopicMeta
