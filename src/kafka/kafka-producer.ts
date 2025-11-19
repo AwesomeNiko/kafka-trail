@@ -114,8 +114,6 @@ class KTKafkaProducer extends KTKafkaBroker {
   async sendBatchMessages(params: KTTopicBatchPayload) {
     const { topicName, messages } = params;
 
-    console.log("Send batch messages - ", messages)
-
     await this.#producer.send({
       topic: topicName,
       compression: CompressionTypes.LZ4,
