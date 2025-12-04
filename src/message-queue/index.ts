@@ -163,23 +163,13 @@ class KTMessageQueue<Ctx extends object> {
                   heartBeat: () => eachMessagePayload.heartbeat(),
                 })
               } catch (err) {
-                let errorMessage: string = ''
                 if (err instanceof Error) {
-                  errorMessage = err.message
                   this.#logger.error(err)
                 }
 
                 if (handler.topic.topicSettings.createDLQ) {
                   const Topic = DLQKTTopic(handler.topic.topicSettings)
-                  const Payload = Topic({
-                    originalOffset: lastOffset,
-                    originalTopic: topicName,
-                    oritinalPartition: partition,
-                    key: KafkaMessageKey.fromString(message.key?.toString()),
-                    value: batchedValues,
-                    errorMessage,
-                    failedAt: Date.now(),
-                  }, {
+                  const Payload = Topic(batchedValues, {
                     messageKey: KafkaMessageKey.NULL,
                     meta: {}
                   })
@@ -283,23 +273,13 @@ class KTMessageQueue<Ctx extends object> {
                   resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
                 })
               } catch (err) {
-                let errorMessage: string = ''
                 if (err instanceof Error) {
-                  errorMessage = err.message
                   this.#logger.error(err)
                 }
 
                 if (handler.topic.topicSettings.createDLQ) {
                   const Topic = DLQKTTopic(handler.topic.topicSettings)
-                  const Payload = Topic({
-                    originalOffset: lastOffset,
-                    originalTopic: topicName,
-                    oritinalPartition: partition,
-                    key: KafkaMessageKey.fromString(JSON.stringify(messages.map(m=>m.key?.toString()))),
-                    value: batchedValues,
-                    errorMessage,
-                    failedAt: Date.now(),
-                  }, {
+                  const Payload = Topic(batchedValues, {
                     messageKey: KafkaMessageKey.NULL,
                     meta: {}
                   })

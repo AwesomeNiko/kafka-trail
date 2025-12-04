@@ -1,6 +1,6 @@
 {
   "name": "@awesomeniko/kafka-trail",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "description": "A Node.js library for managing message queue with Kafka",
   "type": "module",
   "publishConfig": {
@@ -30,7 +30,6 @@
     "lint:check": "eslint --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "lint:fix": "eslint --fix --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --forceExit",
-    "test:int": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.int.json --forceExit",
     "start": "NODE_PATH=./dist node --enable-source-maps dist/test-run.js",
     "build": "rimraf dist && tsc -P tsconfig.build.json",
     "dev": "npm run build && npm run start"
