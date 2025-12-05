@@ -35,6 +35,15 @@ export type KTTopicEvent<Payload extends object> = {
 
 export type KTTopic<T extends object>= typeof KTTopic<T>
 export type KTPayloadFromTopic<T> = T extends KTTopicEvent<infer P> ? P : never;
+export type DLQPayload<T> = {
+  originalTopic: KafkaTopicName;
+  oritinalPartition: number;
+  originalOffset: string | undefined;
+  key: KafkaMessageKey | null;
+  value: T;
+  errorMessage: string;
+  failedAt: number;
+}
 
 /**
  * @deprecated
@@ -67,19 +76,19 @@ export const KTTopic = <Payload extends object> (settings: KTTopicSettings, vali
   return fn
 }
 
-export const DLQKTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<Payload>): KTTopicEvent<Payload> => {
-  return KTTopic<Payload>({ ...settings, createDLQ: true, topic: CreateDlqTopicName(settings.topic) }, validatorFn)
+export const DLQKTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<DLQPayload<Payload>>): KTTopicEvent<DLQPayload<Payload>> => {
+  return KTTopic<DLQPayload<Payload>>({ ...settings, createDLQ: true, topic: CreateDlqTopicName(settings.topic) }, validatorFn)
 }
 
 export const CreateKTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<Payload>): {
   BaseTopic: KTTopicEvent<Payload>,
-  DLQTopic: KTTopicEvent<Payload> | null
+  DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null
 } => {
   const BaseTopic = KTTopic<Payload>(settings, validatorFn)
-  let DLQTopic: KTTopicEvent<Payload> | null = null
+  let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
 
   if (settings.createDLQ) {
-    DLQTopic = DLQKTTopic(settings, validatorFn)
+    DLQTopic = DLQKTTopic<Payload>(settings)
   }
 
   return { BaseTopic, DLQTopic }

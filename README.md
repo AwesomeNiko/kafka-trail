@@ -384,7 +384,19 @@ await messageQueue.initTopics([
   DLQTestExampleTopic
 ])
 
-// Failed messages automatically sent to: dlq.my.topic
+// Failed messages automatically sent to: dlq.my.topic with next model:
+{
+  originalOffset: "123",
+  originalTopic: "user.events",
+  originalPartition: 0,
+  key: '["user123","user456"]',
+  value: [
+    { userId: "user123", action: "login" },
+    { userId: "user456", action: "logout" }
+  ],
+  errorMessage: "Database connection failed",
+  failedAt: 1703123456789
+}
 ```
 
 ## Contributing
