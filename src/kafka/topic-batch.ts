@@ -3,7 +3,7 @@ import type { IHeaders } from "kafkajs";
 import type { KafkaTopicName , KafkaMessageKey } from "../libs/branded-types/kafka/index.js";
 import { ktDecode, ktEncode, type KTTopicPayloadParser } from "../libs/helpers/default-data-parser.js";
 
-import { DLQKTTopic, type KTTopicEvent, type KTTopicSettings } from "./topic.js";
+import { DLQKTTopic, DLQPayload, type KTTopicEvent, type KTTopicSettings } from "./topic.js";
 
 export type KTTopicBatchRawMessage = Array<Omit<KTTopicBatchMessage, 'value'> & {value: object}>
 
@@ -60,13 +60,13 @@ export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: 
 
 export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: KTTopicSettings): {
   BaseTopic: KTTopicBatchEvent<Payload>,
-  DLQTopic: KTTopicEvent<Payload> | null
+  DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null
 } => {
   const BaseTopic = KTTopicBatch<Payload>(settings)
-  let DLQTopic: KTTopicEvent<Payload> | null = null
+  let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
 
   if (settings.createDLQ) {
-    DLQTopic = DLQKTTopic(settings)
+    DLQTopic = DLQKTTopic<Payload>(settings)
   }
 
   return { BaseTopic, DLQTopic }
