@@ -38,6 +38,7 @@ describe("KTMessageQueue test", () => {
         clientId: KafkaClientId.fromString("broker-client-id-1"),
         connectionTimeout: 30000,
       },
+      pureConfig: {},
     });
 
     expect(kafkaProducerInitMock).toHaveBeenCalledTimes(1);
@@ -50,6 +51,7 @@ describe("KTMessageQueue test", () => {
       topic: KafkaTopicName.fromString('test.example'),
       numPartitions: 1,
       batchMessageSizeToConsume: 10,
+      createDLQ: false,
     })
 
     const testExampleTopicHandler = KTHandler({
@@ -80,6 +82,7 @@ describe("KTMessageQueue test", () => {
         connectionTimeout: 30000,
         consumerGroupId: 'group - ' + new Date().toString(),
       },
+      pureConfig: {},
     })
 
     expect(kafkaConsumerInitMock).toHaveBeenCalledTimes(1);

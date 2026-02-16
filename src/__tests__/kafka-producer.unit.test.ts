@@ -41,6 +41,7 @@ describe("KafkaProducer test", () => {
         clientId: KafkaClientId.fromString('producer-test-client-id'),
         connectionTimeout: 30_000,
       },
+      pureConfig: {},
       logger: pino(),
     });
 
@@ -60,12 +61,17 @@ describe("KafkaProducer test", () => {
         clientId: KafkaClientId.fromString('producer-test-client-id'),
         connectionTimeout: 30_000,
       },
+      pureConfig: {},
       logger: pino(),
     });
 
     await kafkaProducer.init();
 
-    await kafkaProducer.createTopic(TOPIC_NAME, PARTITIONS);
+    await kafkaProducer.createTopic({
+      topic: TOPIC_NAME,
+      numPartitions: PARTITIONS,
+      configEntries: [],
+    });
 
     expect(fetchTopicMetadataFn).toHaveBeenCalledTimes(1);
     expect(fetchTopicMetadataFn).toHaveBeenCalledWith({ topics: [TOPIC_NAME] });
@@ -89,12 +95,17 @@ describe("KafkaProducer test", () => {
         clientId: KafkaClientId.fromString('producer-test-client-id'),
         connectionTimeout: 30_000,
       },
+      pureConfig: {},
       logger: pino(),
     });
 
     await kafkaProducer.init();
 
-    await kafkaProducer.createTopic(TOPIC_NAME, PARTITIONS);
+    await kafkaProducer.createTopic({
+      topic: TOPIC_NAME,
+      numPartitions: PARTITIONS,
+      configEntries: [],
+    });
 
     expect(fetchTopicMetadataFn).toHaveBeenCalledTimes(1);
     expect(fetchTopicMetadataFn).toHaveBeenCalledWith({ topics: [TOPIC_NAME] });
@@ -118,12 +129,17 @@ describe("KafkaProducer test", () => {
         clientId: KafkaClientId.fromString('producer-test-client-id'),
         connectionTimeout: 30_000,
       },
+      pureConfig: {},
       logger: pino(),
     });
 
     await kafkaProducer.init();
 
-    await expect(kafkaProducer.createTopic(TOPIC_NAME, PARTITIONS)).rejects.toBeInstanceOf(UnableDecreasePartitionsError);
+    await expect(kafkaProducer.createTopic({
+      topic: TOPIC_NAME,
+      numPartitions: PARTITIONS,
+      configEntries: [],
+    })).rejects.toBeInstanceOf(UnableDecreasePartitionsError);
   });
   it('should send single message', async () => {
     const TOPIC_NAME = KafkaTopicName.fromString('basic-topic-name');
@@ -136,13 +152,15 @@ describe("KafkaProducer test", () => {
         clientId: KafkaClientId.fromString('producer-test-client-id'),
         connectionTimeout: 30_000,
       },
+      pureConfig: {},
       logger: pino(),
     });
 
     await kafkaProducer.sendSingleMessage({
       topicName: TOPIC_NAME,
       messageKey: MESSAGE_KEY,
-      message: MESSAGE,
+      value: MESSAGE,
+      headers: {},
     });
 
     expect(sendMsgFn).toHaveBeenCalledTimes(1);

@@ -38,6 +38,7 @@ describe("Consumer handlers test", () => {
         clientId: KafkaClientId.fromString("broker-client-id-1"),
         connectionTimeout: 30000,
       },
+      pureConfig: {},
     });
 
     const TestExampleTopic = KTTopic<{
@@ -46,20 +47,23 @@ describe("Consumer handlers test", () => {
       topic: KafkaTopicName.fromString('test.example.1'),
       numPartitions: 1,
       batchMessageSizeToConsume: 10,
+      createDLQ: false,
     })
 
     const testExamplePayload = TestExampleTopic({ fieldForPayload: 1 }, {
       messageKey: KafkaMessageKey.NULL,
+      meta: {},
     })
 
     await mq.publishSingleMessage(testExamplePayload)
 
     expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
-      messageKey: null,
-      message: JSON.stringify({ fieldForPayload: 1 }), //Because using default encoder
       topicName: TestExampleTopic.topicSettings.topic,
-    }, {
-      traceId: expect.any(String),
+      value: JSON.stringify({ fieldForPayload: 1 }), //Because using default encoder
+      messageKey: null,
+      headers: {
+        traceId: expect.any(String),
+      },
     });
   });
 
@@ -72,6 +76,7 @@ describe("Consumer handlers test", () => {
       topic: KafkaTopicName.fromString('test.example.2'),
       numPartitions: 1,
       batchMessageSizeToConsume: 10,
+      createDLQ: false,
     })
 
     const testExampleTopicHandler = KTHandler({
@@ -85,6 +90,7 @@ describe("Consumer handlers test", () => {
 
         const testExamplePayload = TestExampleTopic({ fieldForPayload: data.fieldForPayload + 1 }, {
           messageKey: KafkaMessageKey.fromString('testMessageKey'),
+          meta: {},
         })
 
         await publisher.publishSingleMessage(testExamplePayload)
@@ -103,6 +109,7 @@ describe("Consumer handlers test", () => {
         clientId: KafkaClientId.fromString("broker-client-id-1"),
         connectionTimeout: 30000,
       },
+      pureConfig: {},
     });
 
     mq.registerHandlers([testExampleTopicHandler]);
@@ -114,14 +121,16 @@ describe("Consumer handlers test", () => {
         connectionTimeout: 30000,
         consumerGroupId: 'group - ' + new Date().toString(),
       },
+      pureConfig: {},
     })
 
     expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
-      messageKey: 'testMessageKey',
-      message: JSON.stringify({ fieldForPayload: 2 }), //Because using default encoder
       topicName: TestExampleTopic.topicSettings.topic,
-    }, {
-      traceId: expect.any(String),
+      value: JSON.stringify({ fieldForPayload: 2 }), //Because using default encoder
+      messageKey: 'testMessageKey',
+      headers: {
+        traceId: expect.any(String),
+      },
     });
 
     clearAll()
@@ -136,6 +145,7 @@ describe("Consumer handlers test", () => {
       topic: KafkaTopicName.fromString('test.example.2'),
       numPartitions: 1,
       batchMessageSizeToConsume: 10,
+      createDLQ: false,
     }, {
       encode: (data) => {
         return JSON.stringify({
@@ -168,6 +178,7 @@ describe("Consumer handlers test", () => {
 
         const testExamplePayload = TestExampleTopic({ fieldForPayload: data.fieldForPayload }, {
           messageKey: KafkaMessageKey.fromString('testMessageKey'),
+          meta: {},
         })
 
         await publisher.publishSingleMessage(testExamplePayload)
@@ -186,6 +197,7 @@ describe("Consumer handlers test", () => {
         clientId: KafkaClientId.fromString("broker-client-id-1"),
         connectionTimeout: 30000,
       },
+      pureConfig: {},
     });
 
     mq.registerHandlers([testExampleTopicHandler]);
@@ -197,14 +209,16 @@ describe("Consumer handlers test", () => {
         connectionTimeout: 30000,
         consumerGroupId: 'group - ' + new Date().toString(),
       },
+      pureConfig: {},
     })
 
     expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
-      messageKey: 'testMessageKey',
-      message: JSON.stringify({ fieldForPayload: 201 }), //Because using default encoder
       topicName: TestExampleTopic.topicSettings.topic,
-    }, {
-      traceId: expect.any(String),
+      value: JSON.stringify({ fieldForPayload: 201 }), //Because using default encoder
+      messageKey: 'testMessageKey',
+      headers: {
+        traceId: expect.any(String),
+      },
     });
 
     clearAll()
