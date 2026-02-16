@@ -3,7 +3,7 @@ import { clearInterval } from "node:timers";
 import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { pino } from "pino";
 
-import { ArgumentIsRequired, NoHandlersError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
+import { ArgumentIsRequired, NoHandlersError, ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
 import type { KTHandler } from "../kafka/consumer-handler.js";
 import type { KafkaBrokerConfig, KafkaLogger } from "../kafka/kafka-broker.js";
 import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
@@ -88,6 +88,12 @@ class KTMessageQueue<Ctx extends object> {
 
     if (registeredHandlers.length === 0) {
       throw new NoHandlersError('subscribe to consumer');
+    }
+
+    const hasDlqHandlers = registeredHandlers.some((handler) => handler.topic.topicSettings.createDLQ)
+
+    if (hasDlqHandlers) {
+      throw new ProducerInitRequiredForDLQError();
     }
 
     this.#ktConsumer = new KTKafkaConsumer({ ...params, logger: this.#ctx.logger });

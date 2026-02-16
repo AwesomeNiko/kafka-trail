@@ -1,4 +1,4 @@
-import { ConsumerSubscribeError, KTRetryError, NoLocalHandlersError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError } from "./custom-errors/kafka-errors.js"
+import { ConsumerSubscribeError, KTRetryError, NoLocalHandlersError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError, ProducerInitRequiredForDLQError } from "./custom-errors/kafka-errors.js"
 import { KTHandler } from "./kafka/consumer-handler.js";
 import { CustomPartitioner } from "./kafka/custom-partitioner.js";
 import { KTTopicBatch, CreateKTTopicBatch } from "./kafka/topic-batch.js"
@@ -24,6 +24,7 @@ export {
   UnableDecreasePartitionsError,
   ArgumentIsRequired,
   ProducerNotInitializedError,
+  ProducerInitRequiredForDLQError,
   CustomPartitioner,
   CreateKTTopic,
   CreateKTTopicBatch,

@@ -42,6 +42,12 @@ class ProducerNotInitializedError extends KTCustomError {
   }
 }
 
+class ProducerInitRequiredForDLQError extends KTCustomError {
+  constructor(message = "initProducer is required when using createDLQ=true handlers") {
+    super(message, 500);
+  }
+}
+
 export {
-  ConsumerSubscribeError, KTRetryError, NoLocalHandlersError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError,
+  ConsumerSubscribeError, KTRetryError, NoLocalHandlersError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError, ProducerInitRequiredForDLQError,
 };
