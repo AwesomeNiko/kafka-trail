@@ -3,7 +3,7 @@ import { clearInterval } from "node:timers";
 import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { pino } from "pino";
 
-import { ArgumentIsRequired, NoHandlersError } from "../custom-errors/kafka-errors.js";
+import { ArgumentIsRequired, NoHandlersError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
 import type { KTHandler } from "../kafka/consumer-handler.js";
 import type { KafkaBrokerConfig, KafkaLogger } from "../kafka/kafka-broker.js";
 import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
@@ -369,6 +369,10 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   publishSingleMessage(topic: KTTopicPayloadWithMeta) {
+    if (!this.#ktProducer) {
+      return Promise.reject(new ProducerNotInitializedError());
+    }
+
     const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
     const span = tracer.startSpan(`kafka-trail: publishSingleMessage ${topic.topicName}`, {
@@ -396,6 +400,10 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   publishBatchMessages(topic: KTTopicBatchPayload) {
+    if (!this.#ktProducer) {
+      return Promise.reject(new ProducerNotInitializedError());
+    }
+
     const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
     const span = tracer.startSpan(`kafka-trail: publishBatchMessages ${topic.topicName}`, {

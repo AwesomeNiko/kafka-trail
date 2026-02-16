@@ -36,6 +36,12 @@ class ArgumentIsRequired extends KTCustomError {
   }
 }
 
+class ProducerNotInitializedError extends KTCustomError {
+  constructor(message = "Producer is not initialized") {
+    super(message, 500);
+  }
+}
+
 export {
-  ConsumerSubscribeError, KTRetryError, NoLocalHandlersError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired,
+  ConsumerSubscribeError, KTRetryError, NoLocalHandlersError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError,
 };
