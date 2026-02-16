@@ -33,6 +33,7 @@
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --forceExit",
     "test:int": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.int.json --forceExit",
     "test": "yarn test:unit && yarn test:int",
+    "prepare": "husky",
     "start": "NODE_PATH=./dist node --enable-source-maps dist/test-run.js",
     "build": "rimraf dist && tsc -P tsconfig.build.json",
     "dev": "npm run build && npm run start"
@@ -57,6 +58,7 @@
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-jest": "^28.11.0",
     "eslint-plugin-unused-imports": "^4.1.4",
+    "husky": "^9",
     "jest": "^29.7.0",
     "prettier": "^3.2.4",
     "rimraf": "^6.0.1",
