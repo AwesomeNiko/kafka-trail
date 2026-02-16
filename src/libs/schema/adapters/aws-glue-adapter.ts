@@ -1,3 +1,6 @@
+import { GlueClient, GetSchemaVersionCommand } from "@aws-sdk/client-glue";
+import type { GlueClientConfig, GetSchemaVersionCommandInput } from "@aws-sdk/client-glue";
+
 import type { KTCodec, KTSchemaMeta } from "../schema-codec.js";
 import { KTSchemaRegistryError } from "../schema-errors.js";
 
@@ -9,6 +12,7 @@ import { createZodCodec } from "./zod-adapter.js";
 export type AwsGlueSchemaLookup = {
   registryName?: string
   schemaName: string
+  schemaArn?: string
   schemaVersionId?: string
   schemaVersionNumber?: string | number
 }
@@ -38,6 +42,42 @@ export type AwsGlueResolvedSchemaCacheEntry = {
 }
 
 export type AwsGlueCompiledSchemaCacheEntry = AwsGlueResolvedSchemaCacheEntry
+
+export type AwsGlueClientLike = {
+  send: (command: GetSchemaVersionCommand) => Promise<{
+    SchemaDefinition?: string
+    SchemaVersionId?: string
+    VersionNumber?: number
+    SchemaArn?: string
+    DataFormat?: string
+  }>
+  destroy?: () => void
+}
+
+export type AwsGlueStaticCredentials = {
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken?: string
+}
+
+export type AwsGlueAdapterPreload = {
+  schemas: AwsGlueSchemaLookup[]
+  cache?: AwsGlueCodecCacheOptions
+}
+
+export type CreateAwsGlueSchemaRegistryAdapterParams = {
+  region: string
+  credentials?: AwsGlueStaticCredentials
+  profile?: string
+  endpoint?: string
+  preload?: AwsGlueAdapterPreload
+  client?: AwsGlueClientLike
+}
+
+export type AwsGlueSchemaRegistryAdapter = AwsGlueSchemaFetcherLike & {
+  preloadSchemas: (schemas: AwsGlueSchemaLookup[], options?: { cache?: AwsGlueCodecCacheOptions }) => Promise<void>
+  destroy: () => void
+}
 
 type CreateAwsGlueCodecParamsBase = {
   glue: AwsGlueSchemaFetcherLike
@@ -87,12 +127,29 @@ const asSchemaVersion = (value: string | number | undefined): string | undefined
   return undefined
 }
 
+const asVersionNumber = (value: string | number | undefined): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value)
+
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  return undefined
+}
+
 const createSchemaCacheKey = (lookup: AwsGlueSchemaLookup): string => {
   const registryName = lookup.registryName ?? "default"
+  const schemaArn = lookup.schemaArn ?? ""
   const schemaVersionId = lookup.schemaVersionId ?? ""
   const schemaVersionNumber = lookup.schemaVersionNumber ?? ""
 
-  return `${registryName}::${lookup.schemaName}::${schemaVersionId}::${schemaVersionNumber}`
+  return `${registryName}::${lookup.schemaName}::${schemaArn}::${schemaVersionId}::${schemaVersionNumber}`
 }
 
 const getCacheEntry = (params: {
@@ -146,6 +203,7 @@ const deriveSchemaMeta = (params: {
   const schemaId = params.fetchedSchema.schemaVersionId
     ?? params.lookup.schemaVersionId
     ?? params.fetchedSchema.schemaArn
+    ?? params.lookup.schemaArn
 
   const schemaMeta: KTSchemaMeta = {
     provider: "aws-glue",
@@ -193,6 +251,87 @@ const resolveSchemaFromGlue = (params: {
     schema: parsedSchema,
     schemaMeta,
   }
+}
+
+const createGetSchemaVersionInput = (lookup: AwsGlueSchemaLookup): GetSchemaVersionCommandInput => {
+  if (lookup.schemaVersionId) {
+    return {
+      SchemaVersionId: lookup.schemaVersionId,
+    }
+  }
+
+  const schemaVersionNumber = asVersionNumber(lookup.schemaVersionNumber)
+
+  if (lookup.schemaVersionNumber !== undefined && schemaVersionNumber === undefined) {
+    throw new KTSchemaRegistryError({
+      message: `Invalid schemaVersionNumber for AWS Glue lookup: ${String(lookup.schemaVersionNumber)}`,
+      details: {
+        schemaName: lookup.schemaName,
+        schemaVersionNumber: lookup.schemaVersionNumber,
+      },
+    })
+  }
+
+  const schemaId = {
+    SchemaArn: lookup.schemaArn,
+    SchemaName: lookup.schemaArn ? undefined : lookup.schemaName,
+    RegistryName: lookup.schemaArn ? undefined : lookup.registryName,
+  }
+
+  const commandInput: GetSchemaVersionCommandInput = {
+    SchemaId: schemaId,
+  }
+
+  if (schemaVersionNumber !== undefined) {
+    commandInput.SchemaVersionNumber = {
+      VersionNumber: schemaVersionNumber,
+    }
+  } else {
+    commandInput.SchemaVersionNumber = {
+      LatestVersion: true,
+    }
+  }
+
+  return commandInput
+}
+
+const fetchSchemaFromAwsGlue = async (params: {
+  client: AwsGlueClientLike
+  lookup: AwsGlueSchemaLookup
+}): Promise<AwsGlueSchemaFetcherResult> => {
+  const commandInput = createGetSchemaVersionInput(params.lookup)
+  const command = new GetSchemaVersionCommand(commandInput)
+  const response = await params.client.send(command)
+
+  if (!response.SchemaDefinition) {
+    throw new KTSchemaRegistryError({
+      message: `AWS Glue returned empty schema definition for schemaName "${params.lookup.schemaName}"`,
+      details: response,
+    })
+  }
+
+  const fetchedSchema: AwsGlueSchemaFetcherResult = {
+    schemaDefinition: response.SchemaDefinition,
+    schemaName: params.lookup.schemaName,
+  }
+
+  if (response.SchemaVersionId) {
+    fetchedSchema.schemaVersionId = response.SchemaVersionId
+  }
+
+  if (response.VersionNumber !== undefined) {
+    fetchedSchema.schemaVersionNumber = response.VersionNumber
+  }
+
+  if (response.SchemaArn) {
+    fetchedSchema.schemaArn = response.SchemaArn
+  }
+
+  if (response.DataFormat) {
+    fetchedSchema.dataFormat = response.DataFormat
+  }
+
+  return fetchedSchema
 }
 
 const resolveGlueSchema = async (params: {
@@ -263,6 +402,105 @@ export const clearAwsGlueSchemaCache = (store?: Map<string, AwsGlueResolvedSchem
   resolvedStore.clear()
 }
 
+export const preloadAwsGlueSchemas = async (params: {
+  glue: AwsGlueSchemaFetcherLike
+  schemas: AwsGlueSchemaLookup[]
+  cache?: AwsGlueCodecCacheOptions
+}) => {
+  for (const schemaLookup of params.schemas) {
+    const resolveParams = {
+      glue: params.glue,
+      lookup: schemaLookup,
+      cache: params.cache,
+    }
+
+    await resolveGlueSchema(resolveParams)
+  }
+}
+
+const createGlueClient = (params: CreateAwsGlueSchemaRegistryAdapterParams): AwsGlueClientLike => {
+  if (params.client) {
+    return params.client
+  }
+
+  const clientConfig: GlueClientConfig = {
+    region: params.region,
+  }
+
+  if (params.credentials) {
+    clientConfig.credentials = params.credentials
+  }
+
+  if (params.profile) {
+    clientConfig.profile = params.profile
+  }
+
+  if (params.endpoint) {
+    clientConfig.endpoint = params.endpoint
+  }
+
+  const glueClient = new GlueClient(clientConfig)
+
+  return glueClient
+}
+
+export const createAwsGlueSchemaRegistryAdapter = async (
+  params: CreateAwsGlueSchemaRegistryAdapterParams,
+): Promise<AwsGlueSchemaRegistryAdapter> => {
+  const client = createGlueClient(params)
+
+  const adapter: AwsGlueSchemaRegistryAdapter = {
+    async getSchema(lookup) {
+      const fetchParams = {
+        client,
+        lookup,
+      }
+
+      return fetchSchemaFromAwsGlue(fetchParams)
+    },
+    async preloadSchemas(schemas, options) {
+      const preloadParams: {
+        glue: AwsGlueSchemaFetcherLike
+        schemas: AwsGlueSchemaLookup[]
+        cache?: AwsGlueCodecCacheOptions
+      } = {
+        glue: adapter,
+        schemas,
+      }
+
+      if (options?.cache) {
+        preloadParams.cache = options.cache
+      }
+
+      await preloadAwsGlueSchemas(preloadParams)
+    },
+    destroy() {
+      if (client.destroy) {
+        client.destroy()
+      }
+    },
+  }
+
+  if (params.preload?.schemas.length) {
+    const preloadParams: {
+      glue: AwsGlueSchemaFetcherLike
+      schemas: AwsGlueSchemaLookup[]
+      cache?: AwsGlueCodecCacheOptions
+    } = {
+      glue: adapter,
+      schemas: params.preload.schemas,
+    }
+
+    if (params.preload.cache) {
+      preloadParams.cache = params.preload.cache
+    }
+
+    await preloadAwsGlueSchemas(preloadParams)
+  }
+
+  return adapter
+}
+
 export const createAwsGlueCodec = async <Payload extends object>(
   params: CreateAwsGlueCodecParams<Payload>,
 ): Promise<KTCodec<Payload>> => {
@@ -284,12 +522,13 @@ export const createAwsGlueCodec = async <Payload extends object>(
       })
     }
 
-    const zodSchema = params.zodSchemaFactory({
+    const zodSchemaFactoryParams = {
       schema: resolvedSchema.schema,
       lookup: params.schema,
       fetchedSchema: resolvedSchema.fetchedSchema,
       schemaMeta: mergedSchemaMeta,
-    })
+    }
+    const zodSchema = params.zodSchemaFactory(zodSchemaFactoryParams)
 
     const codec = createZodCodec(zodSchema, {
       schemaMeta: mergedSchemaMeta,

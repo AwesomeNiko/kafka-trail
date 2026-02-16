@@ -5,7 +5,7 @@ import { KTTopicBatch, CreateKTTopicBatch } from "./kafka/topic-batch.js"
 import { KTTopic, CreateKTTopic, DLQKTTopic } from "./kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "./libs/branded-types/kafka/index.js";
 import { createAjvCodec, createAjvCodecFromSchema } from "./libs/schema/adapters/ajv-adapter.js";
-import { createAwsGlueCodec, clearAwsGlueSchemaCache } from "./libs/schema/adapters/aws-glue-adapter.js";
+import { createAwsGlueCodec, clearAwsGlueSchemaCache, createAwsGlueSchemaRegistryAdapter, preloadAwsGlueSchemas } from "./libs/schema/adapters/aws-glue-adapter.js";
 import { createZodCodec } from "./libs/schema/adapters/zod-adapter.js";
 import { KTSchemaRegistryError, KTSchemaValidationError } from "./libs/schema/schema-errors.js";
 import { KTMessageQueue } from "./message-queue/index.js";
@@ -22,7 +22,12 @@ export type {
   AwsGlueSchemaLookup,
   AwsGlueSchemaFetcherResult,
   AwsGlueSchemaFetcherLike,
+  AwsGlueSchemaRegistryAdapter,
   AwsGlueCodecCacheOptions,
+  AwsGlueClientLike,
+  AwsGlueStaticCredentials,
+  CreateAwsGlueSchemaRegistryAdapterParams,
+  AwsGlueAdapterPreload,
   AwsGlueZodSchemaFactory,
   AwsGlueZodSchemaFactoryParams,
   AwsGlueResolvedSchemaCacheEntry,
@@ -53,6 +58,8 @@ export {
   createAjvCodecFromSchema,
   createAwsGlueCodec,
   clearAwsGlueSchemaCache,
+  createAwsGlueSchemaRegistryAdapter,
+  preloadAwsGlueSchemas,
   createZodCodec,
   KTSchemaValidationError,
   KTSchemaRegistryError,

@@ -417,68 +417,75 @@ await messageQueue.initTopics([
 You can create a codec from AWS Glue Schema Registry and reuse it in `CreateKTTopic` / `CreateKTTopicBatch`.
 The codec is initialized asynchronously (schema is fetched before codec creation), then works synchronously at runtime.
 
-AJV mode (default):
+1) Create native AWS Glue adapter (IAM/default credentials):
 
 ```typescript
 import { Ajv } from "ajv";
-import { createAwsGlueCodec } from "@awesomeniko/kafka-trail";
+import {
+  createAwsGlueCodec,
+  createAwsGlueSchemaRegistryAdapter,
+} from "@awesomeniko/kafka-trail";
 
 type UserEvent = {
   id: number
 }
 
 const ajv = new Ajv()
+const glueAdapter = await createAwsGlueSchemaRegistryAdapter({
+  region: "eu-central-1",
+  preload: {
+    schemas: [{
+      registryName: "my-registry",
+      schemaName: "user-events",
+      schemaVersionId: "schema-version-id",
+    }],
+  },
+})
 
 const codec = await createAwsGlueCodec<UserEvent>({
   ajv,
+  glue: glueAdapter,
   schema: {
     registryName: "my-registry",
     schemaName: "user-events",
     schemaVersionId: "schema-version-id",
   },
-  glue: {
-    getSchema: async ({ schemaName }) => {
-      return {
-        schemaName,
-        dataFormat: "JSON",
-        schemaDefinition: JSON.stringify({
-          type: "object",
-          properties: {
-            id: { type: "number" },
-          },
-          required: ["id"],
-          additionalProperties: false,
-        }),
-      }
-    },
+})
+```
+
+2) Static AWS keys (instead of IAM/default chain):
+
+```typescript
+const glueAdapter = await createAwsGlueSchemaRegistryAdapter({
+  region: "eu-central-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    sessionToken: process.env.AWS_SESSION_TOKEN,
   },
 })
 ```
 
-Zod mode:
+3) Zod mode (same Glue adapter, no manual `getSchema`):
 
 ```typescript
 import { z } from "zod";
-import { createAwsGlueCodec } from "@awesomeniko/kafka-trail";
+import { createAwsGlueCodec, createAwsGlueSchemaRegistryAdapter } from "@awesomeniko/kafka-trail";
 
 type UserEvent = {
   id: number
 }
 
+const glueAdapter = await createAwsGlueSchemaRegistryAdapter({
+  region: "eu-central-1",
+})
+
 const codec = await createAwsGlueCodec<UserEvent>({
   validator: "zod",
+  glue: glueAdapter,
   schema: {
     registryName: "my-registry",
     schemaName: "user-events",
-  },
-  glue: {
-    getSchema: async ({ schemaName }) => {
-      return {
-        schemaName,
-        dataFormat: "JSON",
-        schemaDefinition: "{\"type\":\"object\"}",
-      }
-    },
   },
   zodSchemaFactory: ({ schema }) => {
     // Build your zod schema using Glue JSON schema payload
@@ -493,6 +500,7 @@ Notes:
 - cache is in-memory and enabled by default per process;
 - cache key is based on registry + schema identifiers and is shared for AJV/Zod modes;
 - unsupported Glue data formats (for example AVRO/PROTOBUF) are rejected in this version;
+- call `glueAdapter.destroy()` on shutdown if you want to close the AWS SDK client explicitly;
 - call `clearAwsGlueSchemaCache()` if you need to invalidate cached schemas manually.
 
 ### Deprecated topic creators

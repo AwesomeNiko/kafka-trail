@@ -1,8 +1,9 @@
+import { GetSchemaVersionCommand } from "@aws-sdk/client-glue";
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { Ajv } from "ajv";
 import { z } from "zod";
 
-import { clearAwsGlueSchemaCache, createAwsGlueCodec, type AwsGlueSchemaFetcherLike } from "../libs/schema/adapters/aws-glue-adapter.js";
+import { clearAwsGlueSchemaCache, createAwsGlueCodec, createAwsGlueSchemaRegistryAdapter, type AwsGlueClientLike, type AwsGlueResolvedSchemaCacheEntry, type AwsGlueSchemaFetcherLike } from "../libs/schema/adapters/aws-glue-adapter.js";
 import { KTSchemaRegistryError, KTSchemaValidationError } from "../libs/schema/schema-errors.js";
 
 type GluePayload = {
@@ -55,6 +56,132 @@ describe("aws glue schema adapter", () => {
     })
     expect(codec.encode({ id: 1 })).toBe(JSON.stringify({ id: 1 }))
     expect(codec.decode(JSON.stringify({ id: 2 }))).toEqual({ id: 2 })
+  })
+
+  it("should fetch schema through native aws adapter using schemaVersionId", async () => {
+    const send = jest.fn((command: GetSchemaVersionCommand) => {
+      expect(command).toBeInstanceOf(GetSchemaVersionCommand)
+      expect(command.input).toEqual({
+        SchemaVersionId: "version-id-native",
+      })
+
+      return Promise.resolve({
+        SchemaDefinition: JSON.stringify(GLUE_SCHEMA),
+        SchemaVersionId: "version-id-native",
+        VersionNumber: 9,
+        DataFormat: "JSON",
+      })
+    })
+    const mockClient: AwsGlueClientLike = {
+      send,
+      destroy: jest.fn(),
+    }
+    const adapter = await createAwsGlueSchemaRegistryAdapter({
+      region: "us-east-1",
+      client: mockClient,
+    })
+    const ajv = new Ajv()
+    const codec = await createAwsGlueCodec<GluePayload>({
+      glue: adapter,
+      ajv,
+      schema: {
+        schemaName: "native-events",
+        schemaVersionId: "version-id-native",
+      },
+    })
+
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(codec.decode(JSON.stringify({ id: 55 }))).toEqual({ id: 55 })
+    adapter.destroy()
+  })
+
+  it("should preload schemas via native adapter and then use cache", async () => {
+    const send = jest.fn((command: GetSchemaVersionCommand) => {
+      expect(command.input).toEqual({
+        SchemaId: {
+          SchemaArn: undefined,
+          SchemaName: "preloaded-events",
+          RegistryName: "preloaded-registry",
+        },
+        SchemaVersionNumber: {
+          VersionNumber: 3,
+        },
+      })
+
+      return Promise.resolve({
+        SchemaDefinition: JSON.stringify(GLUE_SCHEMA),
+        SchemaVersionId: "preloaded-id",
+        VersionNumber: 3,
+        DataFormat: "JSON",
+      })
+    })
+    const mockClient: AwsGlueClientLike = {
+      send,
+      destroy: jest.fn(),
+    }
+    const cacheStore = new Map<string, AwsGlueResolvedSchemaCacheEntry>()
+    const adapter = await createAwsGlueSchemaRegistryAdapter({
+      region: "us-east-1",
+      client: mockClient,
+      preload: {
+        schemas: [{
+          registryName: "preloaded-registry",
+          schemaName: "preloaded-events",
+          schemaVersionNumber: 3,
+        }],
+        cache: {
+          store: cacheStore,
+        },
+      },
+    })
+    const ajv = new Ajv()
+    const codec = await createAwsGlueCodec<GluePayload>({
+      glue: adapter,
+      ajv,
+      cache: {
+        store: cacheStore,
+      },
+      schema: {
+        registryName: "preloaded-registry",
+        schemaName: "preloaded-events",
+        schemaVersionNumber: 3,
+      },
+    })
+
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(codec.decode(JSON.stringify({ id: 77 }))).toEqual({ id: 77 })
+    adapter.destroy()
+  })
+
+  it("should initialize native adapter with explicit static credentials", async () => {
+    const send = jest.fn(() => {
+      return Promise.resolve({
+        SchemaDefinition: JSON.stringify(GLUE_SCHEMA),
+        SchemaVersionId: "credentialed-id",
+        VersionNumber: 1,
+        DataFormat: "JSON",
+      })
+    })
+    const mockClient: AwsGlueClientLike = {
+      send,
+      destroy: jest.fn(),
+    }
+    const adapter = await createAwsGlueSchemaRegistryAdapter({
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIA_TEST_KEY",
+        secretAccessKey: "secret_test_key",
+      },
+      client: mockClient,
+    })
+    const fetched = await adapter.getSchema({
+      schemaName: "credentialed-events",
+      schemaVersionId: "credentialed-id",
+    })
+
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(fetched.schemaVersionId).toBe("credentialed-id")
+    adapter.destroy()
   })
 
   it("should use in-memory cache and avoid duplicated glue fetch", async () => {
