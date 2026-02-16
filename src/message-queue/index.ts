@@ -190,7 +190,7 @@ class KTMessageQueue<Ctx extends object> {
 
     const hasDlqHandlers = registeredHandlers.some((handler) => handler.topic.topicSettings.createDLQ)
 
-    if (hasDlqHandlers) {
+    if (hasDlqHandlers && !this.#ktProducer) {
       throw new ProducerInitRequiredForDLQError();
     }
 

@@ -170,4 +170,46 @@ describe("KTMessageQueue test", () => {
     expect(kafkaConsumerInitMock).toHaveBeenCalledTimes(0);
     expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledTimes(0);
   });
+
+  it("should allow initConsumer with DLQ-enabled handler when producer is initialized", async () => {
+    const { BaseTopic: DLQTopic } = CreateKTTopic<{
+      fieldForPayload: number
+    }>({
+      topic: KafkaTopicName.fromString('test.example.consumer.dlq.allowed'),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: true,
+    })
+
+    const mq = new KTMessageQueue();
+    const dlqHandler = KTHandler({
+      topic: DLQTopic,
+      run: () => Promise.resolve(),
+    })
+
+    mq.registerHandlers([dlqHandler]);
+
+    await mq.initProducer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-1"),
+        connectionTimeout: 30000,
+      },
+      pureConfig: {},
+    });
+
+    await mq.initConsumer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-1"),
+        connectionTimeout: 30000,
+        consumerGroupId: 'group - ' + new Date().toString(),
+      },
+      pureConfig: {},
+    });
+
+    expect(kafkaProducerInitMock).toHaveBeenCalledTimes(1);
+    expect(kafkaConsumerInitMock).toHaveBeenCalledTimes(1);
+    expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledTimes(1);
+  });
 });

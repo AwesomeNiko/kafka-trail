@@ -17,7 +17,8 @@
   "collectCoverage": true,
   "collectCoverageFrom": [
     "src/**/*.{js,jsx,ts,tsx}",
-    "!src/**/*.d.ts"
+    "!src/**/*.d.ts",
+    "!src/__tests__/**"
   ],
   "coverageDirectory": "coverage",
   "coverageReporters": ["json", "lcov", "text", "clover"],
@@ -27,4 +28,3 @@
     "__tests__/.*\\.int\\..*\\.ts$"
   ]
 }
-

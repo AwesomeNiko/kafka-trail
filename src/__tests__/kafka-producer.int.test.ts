@@ -130,4 +130,74 @@ describe("Kafka producer integration", () => {
       await kafkaProducer.destroy();
     }
   }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+
+  it("should keep topic partitions unchanged when requested partitions equal current value", async () => {
+    const { brokerUrl } = getIntTestConfig();
+    const suffix = randomUUID();
+    const topicName = KafkaTopicName.fromString(`test.int.producer.partitions.equal.${suffix}`);
+    const producerClientId = KafkaClientId.fromString(`producer-${suffix}`);
+
+    const kafkaProducer = new KTKafkaProducer({
+      kafkaSettings: {
+        brokerUrls: [brokerUrl],
+        clientId: producerClientId,
+        connectionTimeout: 10_000,
+      },
+      pureConfig: {},
+      logger: pino(),
+    });
+
+    try {
+      await kafkaProducer.init();
+
+      await kafkaProducer.createTopic({
+        topic: topicName,
+        numPartitions: 2,
+        configEntries: [],
+      });
+
+      await expect(kafkaProducer.createTopic({
+        topic: topicName,
+        numPartitions: 2,
+        configEntries: [],
+      })).resolves.toBeUndefined();
+    } finally {
+      await kafkaProducer.destroy();
+    }
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+
+  it("should increase partitions for existing topic", async () => {
+    const { brokerUrl } = getIntTestConfig();
+    const suffix = randomUUID();
+    const topicName = KafkaTopicName.fromString(`test.int.producer.partitions.expand.${suffix}`);
+    const producerClientId = KafkaClientId.fromString(`producer-${suffix}`);
+
+    const kafkaProducer = new KTKafkaProducer({
+      kafkaSettings: {
+        brokerUrls: [brokerUrl],
+        clientId: producerClientId,
+        connectionTimeout: 10_000,
+      },
+      pureConfig: {},
+      logger: pino(),
+    });
+
+    try {
+      await kafkaProducer.init();
+
+      await kafkaProducer.createTopic({
+        topic: topicName,
+        numPartitions: 1,
+        configEntries: [],
+      });
+
+      await expect(kafkaProducer.createTopic({
+        topic: topicName,
+        numPartitions: 2,
+        configEntries: [],
+      })).resolves.toBeUndefined();
+    } finally {
+      await kafkaProducer.destroy();
+    }
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
 });

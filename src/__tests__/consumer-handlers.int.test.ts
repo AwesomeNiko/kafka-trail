@@ -183,4 +183,228 @@ describe("Consumer handlers integration", () => {
       ]);
     }
   }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+
+  it("should limit consumed batch size and provide resolveOffset in batch mode", async () => {
+    const { brokerUrl, timeoutMs } = getIntTestConfig();
+    const suffix = randomUUID();
+    const topicName = KafkaTopicName.fromString(`test.int.consumer.batch.limit.${suffix}`);
+    const producerClientId = KafkaClientId.fromString(`producer-${suffix}`);
+    const consumerClientId = KafkaClientId.fromString(`consumer-${suffix}`);
+    const consumerGroupId = `group-${suffix}`;
+
+    const kafkaProducer = new KTKafkaProducer({
+      kafkaSettings: {
+        brokerUrls: [brokerUrl],
+        clientId: producerClientId,
+        connectionTimeout: 10_000,
+      },
+      pureConfig: {},
+      logger: pino(),
+    });
+    const consumerMq = new KTMessageQueue();
+
+    try {
+      const { BaseTopic: BatchTopic } = CreateKTTopicBatch({
+        topic: topicName,
+        numPartitions: 1,
+        batchMessageSizeToConsume: 1,
+        createDLQ: false,
+        configEntries: [],
+      });
+
+      const receivePromise = new Promise<{
+        length: number
+        hasResolveOffset: boolean
+        lastOffset: string | undefined
+      }>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Timeout waiting for limited consumed batch"));
+        }, timeoutMs);
+
+        const handler = KTHandler({
+          topic: BatchTopic,
+          run: async (payload, _ctx, _publisher, kafkaTopicParams) => {
+            await Promise.resolve();
+
+            kafkaTopicParams.resolveOffset?.(kafkaTopicParams.lastOffset ?? "0");
+            clearTimeout(timeout);
+
+            resolve({
+              length: payload.length,
+              hasResolveOffset: typeof kafkaTopicParams.resolveOffset === "function",
+              lastOffset: kafkaTopicParams.lastOffset,
+            });
+          },
+        });
+
+        consumerMq.registerHandlers([handler]);
+      });
+
+      await kafkaProducer.init();
+      await kafkaProducer.createTopic({
+        topic: topicName,
+        numPartitions: 1,
+        configEntries: [],
+      });
+
+      await consumerMq.initConsumer({
+        kafkaSettings: {
+          brokerUrls: [brokerUrl],
+          clientId: consumerClientId,
+          connectionTimeout: 10_000,
+          consumerGroupId,
+          batchConsuming: true,
+        },
+        pureConfig: {},
+      });
+
+      await kafkaProducer.sendBatchMessages(BatchTopic([
+        {
+          value: { fieldForPayload: 21 },
+          key: KafkaMessageKey.fromString("batch-limit-1"),
+        },
+        {
+          value: { fieldForPayload: 22 },
+          key: KafkaMessageKey.fromString("batch-limit-2"),
+        },
+      ]));
+
+      await expect(receivePromise).resolves.toEqual({
+        length: 1,
+        hasResolveOffset: true,
+        lastOffset: "0",
+      });
+    } finally {
+      await Promise.all([
+        kafkaProducer.destroy(),
+        consumerMq.destroyAll(),
+      ]);
+    }
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+
+  it("should publish failed message to DLQ when handler throws and createDLQ is enabled", async () => {
+    const { brokerUrl, timeoutMs } = getIntTestConfig();
+    const suffix = randomUUID();
+    const topicName = KafkaTopicName.fromString(`test.int.consumer.dlq.${suffix}`);
+    const producerClientId = KafkaClientId.fromString(`producer-${suffix}`);
+    const consumerClientId = KafkaClientId.fromString(`consumer-${suffix}`);
+    const dlqProducerClientId = KafkaClientId.fromString(`consumer-producer-${suffix}`);
+    const consumerGroupId = `group-${suffix}`;
+    const dlqError = "dlq-test-error";
+
+    const producerMq = new KTMessageQueue();
+    const consumerMq = new KTMessageQueue();
+
+    try {
+      const {
+        BaseTopic: MainTopic,
+        DLQTopic,
+      } = CreateKTTopic<{
+        fieldForPayload: number
+      }>({
+        topic: topicName,
+        numPartitions: 1,
+        batchMessageSizeToConsume: 10,
+        createDLQ: true,
+        configEntries: [],
+      });
+
+      if (!DLQTopic) {
+        throw new Error("DLQ topic was not created");
+      }
+
+      const dlqReceivePromise = new Promise<{
+        originalTopic: string
+        errorMessage: string
+        valueLength: number
+      }>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Timeout waiting for DLQ message"));
+        }, timeoutMs);
+
+        const failingHandler = KTHandler({
+          topic: MainTopic,
+          run: async () => {
+            await Promise.resolve();
+            throw new Error(dlqError);
+          },
+        });
+
+        const dlqHandler = KTHandler({
+          topic: DLQTopic,
+          run: async (payload) => {
+            await Promise.resolve();
+            const [dlqMessage] = payload as unknown as Array<{
+              originalTopic: string
+              errorMessage: string
+              value: object[]
+            }>;
+
+            if (!dlqMessage) {
+              return;
+            }
+
+            clearTimeout(timeout);
+            resolve({
+              originalTopic: dlqMessage.originalTopic,
+              errorMessage: dlqMessage.errorMessage,
+              valueLength: dlqMessage.value.length,
+            });
+          },
+        });
+
+        consumerMq.registerHandlers([failingHandler]);
+        consumerMq.registerHandlers([dlqHandler]);
+      });
+
+      await producerMq.initProducer({
+        kafkaSettings: {
+          brokerUrls: [brokerUrl],
+          clientId: producerClientId,
+          connectionTimeout: 10_000,
+        },
+        pureConfig: {},
+      });
+
+      await consumerMq.initProducer({
+        kafkaSettings: {
+          brokerUrls: [brokerUrl],
+          clientId: dlqProducerClientId,
+          connectionTimeout: 10_000,
+        },
+        pureConfig: {},
+      });
+
+      await producerMq.initTopics([MainTopic]);
+      await producerMq.initTopics([DLQTopic]);
+
+      await consumerMq.initConsumer({
+        kafkaSettings: {
+          brokerUrls: [brokerUrl],
+          clientId: consumerClientId,
+          connectionTimeout: 10_000,
+          consumerGroupId,
+        },
+        pureConfig: {},
+      });
+
+      await producerMq.publishSingleMessage(MainTopic({
+        fieldForPayload: 777,
+      }, {
+        messageKey: KafkaMessageKey.fromString("dlq-key-1"),
+        meta: {},
+      }));
+
+      await expect(dlqReceivePromise).resolves.toEqual({
+        originalTopic: topicName,
+        errorMessage: dlqError,
+        valueLength: 1,
+      });
+    } finally {
+      await Promise.all([
+        producerMq.destroyAll(),
+        consumerMq.destroyAll(),
+      ]);
+    }
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
 });
