@@ -1,9 +1,6 @@
 name: CI and Release
 
 on:
-  push:
-    branches:
-      - "**"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -81,8 +78,8 @@ jobs:
         with:
           branch: release/v${{ steps.version.outputs.new_version }}
           base: ${{ inputs.base_branch }}
-          commit-message: chore(release): v${{ steps.version.outputs.new_version }}
-          title: chore(release): v${{ steps.version.outputs.new_version }}
+          commit-message: "chore(release): v${{ steps.version.outputs.new_version }}"
+          title: "chore(release): v${{ steps.version.outputs.new_version }}"
           body: |
             Release PR created by workflow.
 
