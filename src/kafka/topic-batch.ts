@@ -24,15 +24,27 @@ export type KTTopicBatchPayload = {
 export type KTTopicBatchEvent<Payload extends object> = {
   (payload: Payload): KTTopicBatchPayload;
   topicSettings: KTTopicSettings
-  decode: KTTopicPayloadParser<Payload>['decode']
+  decode: KTTopicPayloadParser<Payload extends KTTopicBatchRawMessage ? Payload[number]['value'] : object>['decode']
 };
 
-const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(settings: KTTopicSettings): KTTopicBatchEvent<Payload> => {
-  const fn = (payload: KTTopicBatchRawMessage): KTTopicBatchPayload=> {
+const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(
+  settings: KTTopicSettings,
+  validatorFn?: KTTopicPayloadParser<Payload[number]['value']>,
+): KTTopicBatchEvent<Payload> => {
+  const validatePayload = (payload: unknown): payload is Payload[number]["value"] => {
+    validatorFn?.validate?.(payload)
+
+    return true
+  }
+
+  const fn = (payload: KTTopicBatchRawMessage): KTTopicBatchPayload => {
     const topicBatchMessages: KTTopicBatchMessage[] = []
 
     for (const data of payload) {
-      const payloadToSend = ktEncode(data.value)
+      validatePayload(data.value)
+      const payloadToSend = validatorFn
+        ? validatorFn.encode(data.value as Payload[number]['value'])
+        : ktEncode(data.value)
 
       topicBatchMessages.push({
         value: payloadToSend,
@@ -48,7 +60,12 @@ const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(settings:
   }
 
   fn.topicSettings = settings
-  fn.decode = ktDecode
+  fn.decode = ((data: string | Buffer) => {
+    const decoded = (validatorFn?.decode ?? ktDecode<Payload[number]['value']>)(data)
+    validatePayload(decoded)
+
+    return decoded
+  }) as KTTopicBatchEvent<Payload>['decode']
 
   return fn
 }
@@ -62,11 +79,14 @@ export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage>(
   throw new Error("Deprecated. use CreateKTTopicBatch(...)");
 }
 
-export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: KTTopicSettings): {
+export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage>(
+  settings: KTTopicSettings,
+  validatorFn?: KTTopicPayloadParser<Payload[number]['value']>,
+): {
   BaseTopic: KTTopicBatchEvent<Payload>,
   DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null
 } => {
-  const BaseTopic = createTopicBatchEvent<Payload>(settings)
+  const BaseTopic = createTopicBatchEvent<Payload>(settings, validatorFn)
   let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
 
   if (settings.createDLQ) {

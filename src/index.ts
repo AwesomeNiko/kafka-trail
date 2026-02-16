@@ -4,9 +4,20 @@ import { CustomPartitioner } from "./kafka/custom-partitioner.js";
 import { KTTopicBatch, CreateKTTopicBatch } from "./kafka/topic-batch.js"
 import { KTTopic, CreateKTTopic, DLQKTTopic } from "./kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "./libs/branded-types/kafka/index.js";
+import { createAjvCodec, createAjvCodecFromSchema } from "./libs/schema/adapters/ajv-adapter.js";
+import { createZodCodec } from "./libs/schema/adapters/zod-adapter.js";
+import { KTSchemaValidationError } from "./libs/schema/schema-errors.js";
 import { KTMessageQueue } from "./message-queue/index.js";
 
 export type { KTPayloadFromTopic, KTTopicEvent } from "./kafka/topic.js"
+export type { KTCodec, KTSchemaMeta } from "./libs/schema/schema-codec.js"
+export type {
+  AjvValidateLike,
+  AjvErrorLike,
+  AjvCompilerLike,
+  AjvSchemaLike,
+} from "./libs/schema/adapters/ajv-adapter.js"
+export type { ZodSchemaLike } from "./libs/schema/adapters/zod-adapter.js"
 
 export {
   KTMessageQueue,
@@ -27,4 +38,8 @@ export {
   CustomPartitioner,
   CreateKTTopic,
   CreateKTTopicBatch,
+  createAjvCodec,
+  createAjvCodecFromSchema,
+  createZodCodec,
+  KTSchemaValidationError,
 }

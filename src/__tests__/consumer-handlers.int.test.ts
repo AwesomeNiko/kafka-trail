@@ -2,13 +2,24 @@ import { randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "@jest/globals";
 import { pino } from "pino";
+import { z } from "zod";
 
 import { KTHandler } from "../kafka/consumer-handler.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
 import { CreateKTTopic } from "../kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import { createZodCodec } from "../libs/schema/adapters/zod-adapter.js";
+import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
 import { KTMessageQueue } from "../message-queue/index.js";
+
+type ZodIntPayload = {
+  fieldForPayload: number
+}
+
+const ZOD_INT_SCHEMA = z.object({
+  fieldForPayload: z.number(),
+})
 
 const getIntTestConfig = () => {
   return {
@@ -18,6 +29,137 @@ const getIntTestConfig = () => {
 };
 
 describe("Consumer handlers integration", () => {
+  it("should validate producer payload with zod schema in integration flow", async () => {
+    const { brokerUrl } = getIntTestConfig();
+    const suffix = randomUUID();
+    const topicName = KafkaTopicName.fromString(`test.int.zod.producer.${suffix}`);
+    const producerClientId = KafkaClientId.fromString(`producer-${suffix}`);
+    const producerMq = new KTMessageQueue();
+
+    try {
+      const codec = createZodCodec(ZOD_INT_SCHEMA);
+      const { BaseTopic: TestTopic } = CreateKTTopic<ZodIntPayload>({
+        topic: topicName,
+        numPartitions: 1,
+        batchMessageSizeToConsume: 10,
+        createDLQ: false,
+        configEntries: [],
+      }, codec);
+
+      await producerMq.initProducer({
+        kafkaSettings: {
+          brokerUrls: [brokerUrl],
+          clientId: producerClientId,
+          connectionTimeout: 10_000,
+        },
+        pureConfig: {},
+      });
+
+      await producerMq.initTopics([TestTopic]);
+
+      await expect(producerMq.publishSingleMessage(TestTopic({
+        fieldForPayload: 1,
+      }, {
+        messageKey: KafkaMessageKey.fromString("zod-valid-producer-key"),
+        meta: {},
+      }))).resolves.toBeUndefined();
+
+      expect(() => TestTopic({
+        fieldForPayload: "bad",
+      } as unknown as { fieldForPayload: number }, {
+        messageKey: KafkaMessageKey.fromString("zod-invalid-producer-key"),
+        meta: {},
+      })).toThrow(KTSchemaValidationError);
+    } finally {
+      await producerMq.destroyAll();
+    }
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+
+  it("should validate consumer payload with zod schema in integration flow", async () => {
+    const { brokerUrl, timeoutMs } = getIntTestConfig();
+    const suffix = randomUUID();
+    const topicName = KafkaTopicName.fromString(`test.int.zod.consumer.${suffix}`);
+    const producerClientId = KafkaClientId.fromString(`producer-${suffix}`);
+    const consumerClientId = KafkaClientId.fromString(`consumer-${suffix}`);
+    const consumerGroupId = `group-${suffix}`;
+
+    const producerMq = new KTMessageQueue();
+    const consumerMq = new KTMessageQueue();
+
+    try {
+      const codec = createZodCodec(ZOD_INT_SCHEMA);
+      const { BaseTopic: TestTopic } = CreateKTTopic<ZodIntPayload>({
+        topic: topicName,
+        numPartitions: 1,
+        batchMessageSizeToConsume: 10,
+        createDLQ: false,
+        configEntries: [],
+      }, codec);
+
+      const receivePromise = new Promise<number>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Timeout waiting for consumed zod-valid message"));
+        }, timeoutMs);
+
+        const handler = KTHandler({
+          topic: TestTopic,
+          run: async (payload) => {
+            await Promise.resolve();
+            const [data] = payload;
+
+            if (!data) {
+              return;
+            }
+
+            clearTimeout(timeout);
+            resolve(data.fieldForPayload);
+          },
+        });
+
+        consumerMq.registerHandlers([handler]);
+      });
+
+      await producerMq.initProducer({
+        kafkaSettings: {
+          brokerUrls: [brokerUrl],
+          clientId: producerClientId,
+          connectionTimeout: 10_000,
+        },
+        pureConfig: {},
+      });
+
+      await producerMq.initTopics([TestTopic]);
+
+      await consumerMq.initConsumer({
+        kafkaSettings: {
+          brokerUrls: [brokerUrl],
+          clientId: consumerClientId,
+          connectionTimeout: 10_000,
+          consumerGroupId,
+        },
+        pureConfig: {},
+      });
+
+      await producerMq.publishSingleMessage(TestTopic({
+        fieldForPayload: 42,
+      }, {
+        messageKey: KafkaMessageKey.fromString("zod-valid-consumer-key"),
+        meta: {},
+      }));
+
+      await expect(receivePromise).resolves.toBe(42);
+
+      expect(() => TestTopic.decode(JSON.stringify({
+        fieldForPayload: "bad",
+      }))).toThrow(KTSchemaValidationError);
+    } finally {
+      await Promise.all([
+        producerMq.destroyAll(),
+        consumerMq.destroyAll(),
+      ]);
+    }
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+
   it("should publish and consume message through kafka", async () => {
     const { brokerUrl, timeoutMs } = getIntTestConfig();
     const suffix = randomUUID();

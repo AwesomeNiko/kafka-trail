@@ -48,8 +48,15 @@ const createTopicEvent = <Payload extends object>(
   settings: KTTopicSettings,
   validatorFn?: KTTopicPayloadParser<Payload>,
 ): KTTopicEvent<Payload> => {
+  const validatePayload = (payload: unknown): payload is Payload => {
+    validatorFn?.validate?.(payload)
+
+    return true
+  }
+
   const fn = (payload: Payload,
     { messageKey, meta }: KTTopicMeta & { messageKey: KafkaMessageKey }): KTTopicPayloadWithMeta=> {
+    validatePayload(payload)
     let payloadToSend: string
 
     if (validatorFn) {
@@ -70,7 +77,12 @@ const createTopicEvent = <Payload extends object>(
   }
 
   fn.topicSettings = settings
-  fn.decode = validatorFn?.decode ?? ktDecode
+  fn.decode = ((data: string | Buffer): Payload => {
+    const decoded = (validatorFn?.decode ?? ktDecode<Payload>)(data)
+    validatePayload(decoded)
+
+    return decoded
+  }) as KTTopicPayloadParser<Payload>["decode"]
 
   return fn
 }
