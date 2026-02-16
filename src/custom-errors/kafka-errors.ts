@@ -12,12 +12,6 @@ class KTRetryError extends KTCustomError {
   }
 }
 
-class NoLocalHandlersError extends KTCustomError {
-  constructor(message = "Handler") {
-    super(`No local handlers registered for ${message}`, 500);
-  }
-}
-
 class NoHandlersError extends KTCustomError {
   constructor(message = "Handler") {
     super(`No local handlers registered for ${message}`, 500);
@@ -49,5 +43,5 @@ class ProducerInitRequiredForDLQError extends KTCustomError {
 }
 
 export {
-  ConsumerSubscribeError, KTRetryError, NoLocalHandlersError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError, ProducerInitRequiredForDLQError,
+  ConsumerSubscribeError, KTRetryError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError, ProducerInitRequiredForDLQError,
 };

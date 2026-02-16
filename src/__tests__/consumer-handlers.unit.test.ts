@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { CreateKTTopic } from "../kafka/topic.js";
+import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
+import { CreateKTTopic, KTTopic } from "../kafka/topic.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 describe("CreateKTTopic", () => {
@@ -87,5 +88,49 @@ describe("CreateKTTopic", () => {
     expect(DLQTopic).not.toBeNull();
     expect(DLQTopic?.topicSettings.topic).toBe("dlq.test.create-topic.with-dlq");
   });
-});
 
+  it("should create batch payload for handler topic", () => {
+    const { BaseTopic } = CreateKTTopicBatch({
+      topic: KafkaTopicName.fromString("test.create-topic.batch"),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+      configEntries: [],
+    });
+
+    const payload = BaseTopic([
+      {
+        value: { fieldForPayload: 1 },
+        key: KafkaMessageKey.fromString("batch-key-1"),
+      },
+      {
+        value: { fieldForPayload: 2 },
+        key: KafkaMessageKey.fromString("batch-key-2"),
+      },
+    ]);
+
+    expect(payload.topicName).toBe("test.create-topic.batch");
+    expect(payload.messages).toEqual([
+      {
+        value: JSON.stringify({ fieldForPayload: 1 }),
+        key: "batch-key-1",
+        headers: {},
+      },
+      {
+        value: JSON.stringify({ fieldForPayload: 2 }),
+        key: "batch-key-2",
+        headers: {},
+      },
+    ]);
+  });
+
+  it("should throw clear runtime deprecation error for KTTopic", () => {
+    expect(() => KTTopic({
+      topic: KafkaTopicName.fromString("test.deprecated.topic"),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+      configEntries: [],
+    })).toThrow("Deprecated. use CreateKTTopic(...)");
+  });
+});

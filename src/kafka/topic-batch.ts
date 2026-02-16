@@ -27,13 +27,7 @@ export type KTTopicBatchEvent<Payload extends object> = {
   decode: KTTopicPayloadParser<Payload>['decode']
 };
 
-export type KTTopicBatch<T extends KTTopicBatchRawMessage>= typeof KTTopicBatch<T>
-export type KTPayloadFromTopicBatch<T> = T extends KTTopicBatchEvent<infer P> ? P : never;
-
-/**
- * @deprecated Use CreateKTTopicBatch instead
- */
-export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: KTTopicSettings): KTTopicBatchEvent<Payload>  => {
+const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(settings: KTTopicSettings): KTTopicBatchEvent<Payload> => {
   const fn = (payload: KTTopicBatchRawMessage): KTTopicBatchPayload=> {
     const topicBatchMessages: KTTopicBatchMessage[] = []
 
@@ -59,11 +53,20 @@ export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: 
   return fn
 }
 
+/**
+ * @deprecated Use CreateKTTopicBatch instead
+ */
+export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage>(
+  _settings: KTTopicSettings,
+): KTTopicBatchEvent<Payload> => {
+  throw new Error("Deprecated. use CreateKTTopicBatch(...)");
+}
+
 export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: KTTopicSettings): {
   BaseTopic: KTTopicBatchEvent<Payload>,
   DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null
 } => {
-  const BaseTopic = KTTopicBatch<Payload>(settings)
+  const BaseTopic = createTopicBatchEvent<Payload>(settings)
   let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
 
   if (settings.createDLQ) {

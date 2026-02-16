@@ -14,6 +14,33 @@ import { DLQKTTopic, type KTTopicEvent, type KTTopicPayloadWithMeta } from "../k
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
 
+type KTHandlerKafkaParams = {
+  heartBeat: () => void,
+  partition: number,
+  lastOffset: string | undefined,
+  resolveOffset?: (offset: string) => void,
+}
+
+type KTPublishToDlqParams<Ctx extends object> = {
+  handler: KTHandler<object, Ctx & KafkaLogger>,
+  originalTopic: KafkaTopicName,
+  originalOffset: string | undefined,
+  originalPartition: number,
+  key: KafkaMessageKey,
+  value: object[],
+  errorMessage: string,
+}
+
+type KTRunHandlerWithTracingParams<Ctx extends object> = {
+  handler: KTHandler<object, Ctx & KafkaLogger>,
+  topicName: KafkaTopicName,
+  partition: number,
+  lastOffset: string | undefined,
+  batchedValues: object[],
+  kafkaTopicParams: KTHandlerKafkaParams,
+  failedKey: KafkaMessageKey,
+}
+
 class KTMessageQueue<Ctx extends object> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #registeredHandlers: Map<KafkaTopicName, KTHandler<any, Ctx & KafkaLogger>> = new Map();
@@ -74,6 +101,77 @@ class KTMessageQueue<Ctx extends object> {
     return this.#ktProducer;
   }
 
+  #extractErrorMessage(err: unknown): string {
+    if (err instanceof Error) {
+      this.#logger.error(err)
+
+      return err.message
+    }
+
+    return ''
+  }
+
+  async #publishToDlq(params: KTPublishToDlqParams<Ctx>) {
+    const Topic = DLQKTTopic(params.handler.topic.topicSettings)
+    const Payload = Topic({
+      originalOffset: params.originalOffset,
+      originalTopic: params.originalTopic,
+      originalPartition: params.originalPartition,
+      key: params.key,
+      value: params.value,
+      errorMessage: params.errorMessage,
+      failedAt: Date.now(),
+    }, {
+      messageKey: KafkaMessageKey.NULL,
+      meta: {},
+    })
+
+    await this.publishSingleMessage(Payload)
+  }
+
+  async #runHandlerWithTracing(params: KTRunHandlerWithTracingParams<Ctx>) {
+    const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
+
+    const attributes = createHandlerTraceAttributes({
+      topicName: params.topicName,
+      partition: params.partition,
+      lastOffset: params.lastOffset,
+      batchedValues: params.batchedValues,
+      opts: {
+        addPayloadToTrace: this.#addPayloadToTrace,
+      },
+    })
+
+    const handlerSpan = tracer.startSpan(`kafka-trail: handler ${params.topicName}`, {
+      kind: SpanKind.CONSUMER,
+      attributes,
+    })
+
+    await context.with(trace.setSpan(context.active(), handlerSpan), async () => {
+      try {
+        await params.handler.run(params.batchedValues, this.#ctx, this, params.kafkaTopicParams)
+      } catch (err) {
+        const errorMessage = this.#extractErrorMessage(err)
+
+        if (params.handler.topic.topicSettings.createDLQ) {
+          await this.#publishToDlq({
+            handler: params.handler,
+            originalOffset: params.lastOffset,
+            originalTopic: params.topicName,
+            originalPartition: params.partition,
+            key: params.failedKey,
+            value: params.batchedValues,
+            errorMessage,
+          })
+        } else {
+          throw err
+        }
+      } finally {
+        handlerSpan.end()
+      }
+    })
+  }
+
   async initProducer(params: KafkaBrokerConfig) {
     const { kafkaSettings: { brokerUrls } } = params
 
@@ -92,7 +190,7 @@ class KTMessageQueue<Ctx extends object> {
 
     const hasDlqHandlers = registeredHandlers.some((handler) => handler.topic.topicSettings.createDLQ)
 
-    if (hasDlqHandlers) {
+    if (hasDlqHandlers && !this.#ktProducer) {
       throw new ProducerInitRequiredForDLQError();
     }
 
@@ -161,59 +259,18 @@ class KTMessageQueue<Ctx extends object> {
                 lastOffset = message.offset;
               }
 
-              const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-              const attributes = createHandlerTraceAttributes({
+              await this.#runHandlerWithTracing({
+                handler,
                 topicName,
                 partition,
                 lastOffset,
                 batchedValues,
-                opts: {
-                  addPayloadToTrace: this.#addPayloadToTrace,
+                kafkaTopicParams: {
+                  partition,
+                  lastOffset,
+                  heartBeat: () => eachMessagePayload.heartbeat(),
                 },
-              })
-
-              const handlerSpan = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
-                kind: SpanKind.CONSUMER,
-                attributes,
-              })
-
-              await context.with(trace.setSpan(context.active(), handlerSpan), async () => {
-                try {
-                  await handler.run(batchedValues, this.#ctx, this, {
-                    partition,
-                    lastOffset,
-                    heartBeat: () => eachMessagePayload.heartbeat(),
-                  })
-                } catch (err) {
-                  let errorMessage: string = ''
-
-                  if (err instanceof Error) {
-                    errorMessage = err.message
-                    this.#logger.error(err)
-                  }
-
-                  if (handler.topic.topicSettings.createDLQ) {
-                    const Topic = DLQKTTopic(handler.topic.topicSettings)
-                    const Payload = Topic({
-                      originalOffset: lastOffset,
-                      originalTopic: topicName,
-                      oritinalPartition: partition,
-                      key: KafkaMessageKey.fromString(message.key?.toString()),
-                      value: batchedValues,
-                      errorMessage,
-                      failedAt: Date.now(),
-                    }, {
-                      messageKey: KafkaMessageKey.NULL,
-                      meta: {},
-                    })
-                    await this.publishSingleMessage(Payload)
-                  } else {
-                    throw err
-                  }
-                } finally {
-                  handlerSpan.end()
-                }
+                failedKey: KafkaMessageKey.fromString(message.key?.toString()),
               })
             }
           } finally {
@@ -291,60 +348,19 @@ class KTMessageQueue<Ctx extends object> {
                   }
                 }
 
-                const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-                const attributes = createHandlerTraceAttributes({
+                await this.#runHandlerWithTracing({
+                  handler,
                   topicName,
                   partition,
                   lastOffset,
                   batchedValues,
-                  opts: {
-                    addPayloadToTrace: this.#addPayloadToTrace,
+                  kafkaTopicParams: {
+                    partition,
+                    lastOffset,
+                    heartBeat: () => eachBatchPayload.heartbeat(),
+                    resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
                   },
-                })
-
-                const handlerSpan = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
-                  kind: SpanKind.CONSUMER,
-                  attributes: attributes,
-                })
-
-                await context.with(trace.setSpan(context.active(), handlerSpan), async () => {
-                  try {
-                    await handler.run(batchedValues, this.#ctx, this, {
-                      partition,
-                      lastOffset,
-                      heartBeat: () => eachBatchPayload.heartbeat(),
-                      resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
-                    })
-                  } catch (err) {
-                    let errorMessage: string = ''
-
-                    if (err instanceof Error) {
-                      errorMessage = err.message
-                      this.#logger.error(err)
-                    }
-
-                    if (handler.topic.topicSettings.createDLQ) {
-                      const Topic = DLQKTTopic(handler.topic.topicSettings)
-                      const Payload = Topic({
-                        originalOffset: lastOffset,
-                        originalTopic: topicName,
-                        oritinalPartition: partition,
-                        key: KafkaMessageKey.fromString(JSON.stringify(messages.map(m=>m.key?.toString()))),
-                        value: batchedValues,
-                        errorMessage,
-                        failedAt: Date.now(),
-                      }, {
-                        messageKey: KafkaMessageKey.NULL,
-                        meta: {},
-                      })
-                      await this.publishSingleMessage(Payload)
-                    } else {
-                      throw err
-                    }
-                  } finally {
-                    handlerSpan.end()
-                  }
+                  failedKey: KafkaMessageKey.fromString(JSON.stringify(messages.map(m=>m.key?.toString()))),
                 })
 
                 if (lastOffset) {

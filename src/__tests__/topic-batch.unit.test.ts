@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
+import { CreateKTTopicBatch, KTTopicBatch } from "../kafka/topic-batch.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 describe("CreateKTTopicBatch", () => {
@@ -91,5 +91,14 @@ describe("CreateKTTopicBatch", () => {
     expect(DLQTopic).not.toBeNull();
     expect(DLQTopic?.topicSettings.topic).toBe("dlq.test.batch.topic.with-dlq");
   });
-});
 
+  it("should throw clear runtime deprecation error for KTTopicBatch", () => {
+    expect(() => KTTopicBatch({
+      topic: KafkaTopicName.fromString("test.deprecated.batch-topic"),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+      configEntries: [],
+    })).toThrow("Deprecated. use CreateKTTopicBatch(...)");
+  });
+});

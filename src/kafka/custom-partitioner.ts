@@ -2,10 +2,11 @@ import type {  PartitionerArgs } from "kafkajs";
 
 const roundRobin = () => {
   let msgNumber = 0
+  const byNumber = roundRobinNumber()
 
   return (params: PartitionerArgs) => {
     if (params.message.key) {
-      return roundRobinNumber()(params)
+      return byNumber(params)
     }
 
     const specifiedPartitionNumber = msgNumber % params.partitionMetadata.length
