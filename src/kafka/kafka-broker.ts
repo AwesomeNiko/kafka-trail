@@ -1,4 +1,4 @@
-import type { KafkaConfig } from "kafkajs";
+import type { CompressionTypes as KafkaCompressionTypes, KafkaConfig } from "kafkajs";
 import KafkaJS from "kafkajs";
 import type pino from "pino";
 
@@ -10,8 +10,11 @@ type KTKafkaSettings = {
   clientId: KafkaClientId,
   connectionTimeout: number
   compressionCodec?: {
-    codecType: keyof typeof CompressionCodecs,
-    codecFn: lz4Codec
+    codecType: KafkaCompressionTypes.LZ4,
+    codecFn?: lz4Codec
+  } | {
+    codecType: Exclude<KafkaCompressionTypes, KafkaCompressionTypes.LZ4>,
+    codecFn?: never
   }
 }
 
@@ -28,6 +31,23 @@ export type KafkaWithLogger<T extends KafkaBrokerConfig> = T & KafkaLogger
 
 const { Kafka , CompressionTypes, CompressionCodecs } = KafkaJS
 
+let registeredLz4CodecFn: lz4Codec | undefined;
+
+const ensureLz4CodecRegistered = (codecFn?: lz4Codec) => {
+  const resolvedCodecFn = codecFn ?? lz4Codec;
+
+  if (!registeredLz4CodecFn) {
+    CompressionCodecs[CompressionTypes.LZ4] = () => resolvedCodecFn;
+    registeredLz4CodecFn = resolvedCodecFn;
+
+    return;
+  }
+
+  if (registeredLz4CodecFn !== resolvedCodecFn) {
+    throw new Error("LZ4 codec is already registered with a different implementation");
+  }
+};
+
 class KTKafkaBroker {
   _kafka: KafkaJS.Kafka;
 
@@ -35,8 +55,11 @@ class KTKafkaBroker {
 
     const clientId = params.kafkaSettings.clientId ?? `consumer-${Date.now()}`
     const { brokerUrls, connectionTimeout } = params.kafkaSettings;
+    const { compressionCodec } = params.kafkaSettings;
 
-    CompressionCodecs[params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4] = () => params.kafkaSettings.compressionCodec?.codecFn ?? lz4Codec;
+    if (!compressionCodec || compressionCodec.codecType === CompressionTypes.LZ4) {
+      ensureLz4CodecRegistered(compressionCodec?.codecFn);
+    }
 
     if (!Array.isArray(brokerUrls)) {
       throw new Error("KafkaBrokerUrls must be an array");

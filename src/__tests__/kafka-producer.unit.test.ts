@@ -174,4 +174,42 @@ describe("KafkaProducer test", () => {
       }],
     });
   });
+
+  it("should use configured compression codec for batch messages", async () => {
+    const TOPIC_NAME = KafkaTopicName.fromString("basic-topic-name");
+    const MESSAGE_KEY = KafkaMessageKey.fromString("1");
+
+    const kafkaProducer = new KTKafkaProducer({
+      kafkaSettings: {
+        brokerUrls: ["localhost:19092"],
+        clientId: KafkaClientId.fromString("producer-test-client-id"),
+        connectionTimeout: 30_000,
+        compressionCodec: {
+          codecType: CompressionTypes.GZIP,
+        },
+      },
+      pureConfig: {},
+      logger: pino(),
+    });
+
+    await kafkaProducer.sendBatchMessages({
+      topicName: TOPIC_NAME,
+      messages: [{
+        key: MESSAGE_KEY,
+        value: "1",
+        headers: {},
+      }],
+    });
+
+    expect(sendMsgFn).toHaveBeenCalledTimes(1);
+    expect(sendMsgFn).toHaveBeenCalledWith({
+      topic: TOPIC_NAME,
+      compression: CompressionTypes.GZIP,
+      messages: [{
+        key: MESSAGE_KEY?.toString(),
+        value: "1",
+        headers: {},
+      }],
+    });
+  });
 });

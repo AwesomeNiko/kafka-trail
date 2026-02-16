@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
+import { ProducerNotInitializedError } from "../custom-errors/kafka-errors.ts";
 import { KTHandler } from "../kafka/consumer-handler.ts";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
 import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
 import { CreateKTTopic } from "../kafka/topic.ts";
-import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
 import { KTMessageQueue } from "../message-queue/index.ts";
 
 import { createKafkaMocks } from "./mocks/create-mocks.ts";
@@ -19,12 +20,15 @@ const kafkaConsumerSubscribeTopicMock = jest.spyOn(KTKafkaConsumer.prototype, 's
 const kafkaProducerCreateTopicMock = jest.spyOn(KTKafkaProducer.prototype, 'createTopic').mockImplementation(jest.fn);
 // @ts-expect-error too much return arguments
 const kafkaProducerSendSingleMessageMock = jest.spyOn(KTKafkaProducer.prototype, 'sendSingleMessage').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
+const kafkaProducerSendBatchMessagesMock = jest.spyOn(KTKafkaProducer.prototype, 'sendBatchMessages').mockImplementation(jest.fn);
 
 describe("KTMessageQueue test", () => {
   beforeEach(() => {
     kafkaProducerInitMock.mockClear();
     kafkaProducerCreateTopicMock.mockClear();
     kafkaProducerSendSingleMessageMock.mockClear();
+    kafkaProducerSendBatchMessagesMock.mockClear();
     kafkaConsumerInitMock.mockClear();
     kafkaConsumerSubscribeTopicMock.mockClear();
   });
@@ -89,5 +93,49 @@ describe("KTMessageQueue test", () => {
     expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledTimes(1);
     expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledWith(['test.example']);
     clearAll()
+  });
+
+  it("should throw clear error when publishSingleMessage is called before initProducer", async () => {
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
+      fieldForPayload: number
+    }>({
+      topic: KafkaTopicName.fromString('test.example.publish.single'),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+    })
+    const mq = new KTMessageQueue();
+    const payload = TestExampleTopic({
+      fieldForPayload: 1,
+    }, {
+      messageKey: KafkaMessageKey.fromString("key-1"),
+      meta: {},
+    })
+
+    await expect(mq.publishSingleMessage(payload)).rejects.toBeInstanceOf(ProducerNotInitializedError);
+    expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("should throw clear error when publishBatchMessages is called before initProducer", async () => {
+    const { BaseTopic: TestBatchTopic } = CreateKTTopic<{
+      fieldForPayload: number
+    }>({
+      topic: KafkaTopicName.fromString('test.example.publish.batch'),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+    })
+    const mq = new KTMessageQueue();
+    const batchPayload = {
+      topicName: TestBatchTopic.topicSettings.topic,
+      messages: [{
+        key: KafkaMessageKey.fromString("key-2"),
+        value: JSON.stringify({ fieldForPayload: 1 }),
+        headers: {},
+      }],
+    }
+
+    await expect(mq.publishBatchMessages(batchPayload)).rejects.toBeInstanceOf(ProducerNotInitializedError);
+    expect(kafkaProducerSendBatchMessagesMock).toHaveBeenCalledTimes(0);
   });
 });

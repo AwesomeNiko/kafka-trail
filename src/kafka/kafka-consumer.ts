@@ -14,6 +14,7 @@ import { KTKafkaBroker } from "./kafka-broker.js";
 export type KTKafkaConsumerConfig = {
   kafkaSettings: {
     consumerGroupId: string;
+    subscribeFromBeginning?: boolean;
     subscribeRetries?: number;
     subscribeRetryInterval?: number;
     heartbeatInterval?: number;
@@ -41,6 +42,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
     interval: 2000,
     retries: 50,
   };
+  #subscribeFromBeginning = false;
 
   heartbeatEarlyFactor: number = 0.1
 
@@ -49,6 +51,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
 
     const {
       consumerGroupId,
+      subscribeFromBeginning,
       subscribeRetries,
       subscribeRetryInterval,
       heartbeatInterval,
@@ -71,6 +74,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
 
     this.#subscribeRetry.retries = ifNanUseDefaultNumber(subscribeRetries, 30);
     this.#subscribeRetry.interval = ifNanUseDefaultNumber(subscribeRetryInterval, 2000)
+    this.#subscribeFromBeginning = subscribeFromBeginning ?? true;
     this.heartBeatInterval = ifNanUseDefaultNumber(heartbeatInterval, 5000)
     this.heartbeatEarlyFactor = ifNanUseDefaultNumber(heartbeatEarlyFactor, 0.1)
 
@@ -124,7 +128,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       async () =>
         await this.consumer.subscribe({
           topics,
-          fromBeginning: true,
+          fromBeginning: this.#subscribeFromBeginning,
         }),
       this.#logger,
       {
