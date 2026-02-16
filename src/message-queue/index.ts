@@ -9,7 +9,7 @@ import type { KafkaBrokerConfig, KafkaLogger } from "../kafka/kafka-broker.js";
 import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
-import type { KTTopicBatchPayload } from "../kafka/topic-batch.ts";
+import type { KTTopicBatchPayload } from "../kafka/topic-batch.js";
 import { DLQKTTopic, type KTTopicEvent, type KTTopicPayloadWithMeta } from "../kafka/topic.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";

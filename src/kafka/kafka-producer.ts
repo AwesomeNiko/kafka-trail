@@ -8,7 +8,7 @@ import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafk
 import { CustomPartitioner } from "./custom-partitioner.js";
 import type { KafkaBrokerConfig, KafkaWithLogger } from "./kafka-broker.js";
 import { KTKafkaBroker } from "./kafka-broker.js";
-import type { KTTopicBatchPayload } from "./topic-batch.ts";
+import type { KTTopicBatchPayload } from "./topic-batch.js";
 
 type KTKafkaProducerConfig = {
   createPartitioner?: ICustomPartitioner

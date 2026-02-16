@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { CreateKTTopicBatch } from "../kafka/topic-batch.ts";
-import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
+import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 describe("CreateKTTopicBatch", () => {
   it("should create batch payload with encoded values and default headers", () => {

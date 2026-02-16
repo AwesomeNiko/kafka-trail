@@ -2,11 +2,11 @@ import { describe, expect, it, beforeEach } from "@jest/globals";
 import { CompressionTypes } from "kafkajs";
 import { pino } from "pino";
 
-import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.ts";
-import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
-import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.js";
+import { KTKafkaProducer } from "../kafka/kafka-producer.js";
+import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
-import { createKafkaMocks } from "./mocks/create-mocks.ts";
+import { createKafkaMocks } from "./mocks/create-mocks.js";
 
 const {
   kafkaAdminConnectFn,
