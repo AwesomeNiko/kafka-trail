@@ -33,7 +33,6 @@ export type KTTopicEvent<Payload extends object> = {
   decode: KTTopicPayloadParser<Payload>['decode']
 };
 
-export type KTTopic<T extends object>= typeof KTTopic<T>
 export type KTPayloadFromTopic<T> = T extends KTTopicEvent<infer P> ? P : never;
 export type DLQPayload<T> = {
   originalTopic: KafkaTopicName;
@@ -45,10 +44,10 @@ export type DLQPayload<T> = {
   failedAt: number;
 }
 
-/**
- * @deprecated Use CreateKTTopic instead
- */
-export const KTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<Payload>): KTTopicEvent<Payload>  => {
+const createTopicEvent = <Payload extends object>(
+  settings: KTTopicSettings,
+  validatorFn?: KTTopicPayloadParser<Payload>,
+): KTTopicEvent<Payload> => {
   const fn = (payload: Payload,
     { messageKey, meta }: KTTopicMeta & { messageKey: KafkaMessageKey }): KTTopicPayloadWithMeta=> {
     let payloadToSend: string
@@ -76,15 +75,25 @@ export const KTTopic = <Payload extends object> (settings: KTTopicSettings, vali
   return fn
 }
 
+/**
+ * @deprecated Use CreateKTTopic instead
+ */
+export const KTTopic = <Payload extends object>(
+  _settings: KTTopicSettings,
+  _validatorFn?: KTTopicPayloadParser<Payload>,
+): KTTopicEvent<Payload> => {
+  throw new Error("Deprecated. use CreateKTTopic(...)");
+}
+
 export const DLQKTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<DLQPayload<Payload>>): KTTopicEvent<DLQPayload<Payload>> => {
-  return KTTopic<DLQPayload<Payload>>({ ...settings, createDLQ: true, topic: CreateDlqTopicName(settings.topic) }, validatorFn)
+  return createTopicEvent<DLQPayload<Payload>>({ ...settings, createDLQ: true, topic: CreateDlqTopicName(settings.topic) }, validatorFn)
 }
 
 export const CreateKTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<Payload>): {
   BaseTopic: KTTopicEvent<Payload>,
   DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null
 } => {
-  const BaseTopic = KTTopic<Payload>(settings, validatorFn)
+  const BaseTopic = createTopicEvent<Payload>(settings, validatorFn)
   let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
 
   if (settings.createDLQ) {

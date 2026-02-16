@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
-import { CreateKTTopic } from "../kafka/topic.js";
+import { CreateKTTopic, KTTopic } from "../kafka/topic.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 describe("CreateKTTopic", () => {
@@ -122,5 +122,15 @@ describe("CreateKTTopic", () => {
         headers: {},
       },
     ]);
+  });
+
+  it("should throw clear runtime deprecation error for KTTopic", () => {
+    expect(() => KTTopic({
+      topic: KafkaTopicName.fromString("test.deprecated.topic"),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+      configEntries: [],
+    })).toThrow("Deprecated. use CreateKTTopic(...)");
   });
 });
