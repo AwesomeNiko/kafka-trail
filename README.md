@@ -413,6 +413,88 @@ await messageQueue.initTopics([
 }
 ```
 
+### AWS Glue Schema Registry (with in-memory cache)
+You can create a codec from AWS Glue Schema Registry and reuse it in `CreateKTTopic` / `CreateKTTopicBatch`.
+The codec is initialized asynchronously (schema is fetched before codec creation), then works synchronously at runtime.
+
+AJV mode (default):
+
+```typescript
+import { Ajv } from "ajv";
+import { createAwsGlueCodec } from "@awesomeniko/kafka-trail";
+
+type UserEvent = {
+  id: number
+}
+
+const ajv = new Ajv()
+
+const codec = await createAwsGlueCodec<UserEvent>({
+  ajv,
+  schema: {
+    registryName: "my-registry",
+    schemaName: "user-events",
+    schemaVersionId: "schema-version-id",
+  },
+  glue: {
+    getSchema: async ({ schemaName }) => {
+      return {
+        schemaName,
+        dataFormat: "JSON",
+        schemaDefinition: JSON.stringify({
+          type: "object",
+          properties: {
+            id: { type: "number" },
+          },
+          required: ["id"],
+          additionalProperties: false,
+        }),
+      }
+    },
+  },
+})
+```
+
+Zod mode:
+
+```typescript
+import { z } from "zod";
+import { createAwsGlueCodec } from "@awesomeniko/kafka-trail";
+
+type UserEvent = {
+  id: number
+}
+
+const codec = await createAwsGlueCodec<UserEvent>({
+  validator: "zod",
+  schema: {
+    registryName: "my-registry",
+    schemaName: "user-events",
+  },
+  glue: {
+    getSchema: async ({ schemaName }) => {
+      return {
+        schemaName,
+        dataFormat: "JSON",
+        schemaDefinition: "{\"type\":\"object\"}",
+      }
+    },
+  },
+  zodSchemaFactory: ({ schema }) => {
+    // Build your zod schema using Glue JSON schema payload
+    return z.object({
+      id: z.number(),
+    })
+  },
+})
+```
+
+Notes:
+- cache is in-memory and enabled by default per process;
+- cache key is based on registry + schema identifiers and is shared for AJV/Zod modes;
+- unsupported Glue data formats (for example AVRO/PROTOBUF) are rejected in this version;
+- call `clearAwsGlueSchemaCache()` if you need to invalidate cached schemas manually.
+
 ### Deprecated topic creators
 `KTTopic(...)` and `KTTopicBatch(...)` are kept only for backward compatibility and throw runtime errors:
 - `Deprecated. use CreateKTTopic(...)`
