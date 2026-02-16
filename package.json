@@ -32,6 +32,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --forceExit",
     "test:int": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.int.json --forceExit",
+    "test": "yarn test:unit && yarn test:int",
     "start": "NODE_PATH=./dist node --enable-source-maps dist/test-run.js",
     "build": "rimraf dist && tsc -P tsconfig.build.json",
     "dev": "npm run build && npm run start"

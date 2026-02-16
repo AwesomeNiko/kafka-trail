@@ -31,6 +31,23 @@ export type KafkaWithLogger<T extends KafkaBrokerConfig> = T & KafkaLogger
 
 const { Kafka , CompressionTypes, CompressionCodecs } = KafkaJS
 
+let registeredLz4CodecFn: lz4Codec | undefined;
+
+const ensureLz4CodecRegistered = (codecFn?: lz4Codec) => {
+  const resolvedCodecFn = codecFn ?? lz4Codec;
+
+  if (!registeredLz4CodecFn) {
+    CompressionCodecs[CompressionTypes.LZ4] = () => resolvedCodecFn;
+    registeredLz4CodecFn = resolvedCodecFn;
+
+    return;
+  }
+
+  if (registeredLz4CodecFn !== resolvedCodecFn) {
+    throw new Error("LZ4 codec is already registered with a different implementation");
+  }
+};
+
 class KTKafkaBroker {
   _kafka: KafkaJS.Kafka;
 
@@ -41,7 +58,7 @@ class KTKafkaBroker {
     const { compressionCodec } = params.kafkaSettings;
 
     if (!compressionCodec || compressionCodec.codecType === CompressionTypes.LZ4) {
-      CompressionCodecs[CompressionTypes.LZ4] = () => compressionCodec?.codecFn ?? lz4Codec;
+      ensureLz4CodecRegistered(compressionCodec?.codecFn);
     }
 
     if (!Array.isArray(brokerUrls)) {
