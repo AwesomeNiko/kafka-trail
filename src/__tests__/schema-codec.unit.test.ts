@@ -1,25 +1,36 @@
 import { describe, expect, it } from "@jest/globals";
+import { Ajv } from "ajv";
 
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
-import type { KTCodec } from "../libs/schema/schema-codec.js";
+import { createAjvCodecFromSchema } from "../libs/schema/adapters/ajv-adapter.js";
+import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
 
 type BatchValue = {
   value: number
 }
 
 describe("schema codec integration", () => {
-  it("should support codec in CreateKTTopicBatch", () => {
-    const codec: KTCodec<BatchValue> = {
-      encode: (data) => JSON.stringify({ value: data.value + 1 }),
-      decode: (data) => {
-        const dataString = Buffer.isBuffer(data)
-          ? data.toString()
-          : data
-
-        return JSON.parse(dataString) as BatchValue
+  it("should validate KTTopicBatch values with real ajv schema", () => {
+    const ajv = new Ajv()
+    ajv.addKeyword({
+      keyword: "x-schema-version",
+      schemaType: "string",
+    })
+    const codec = createAjvCodecFromSchema<BatchValue>({
+      ajv,
+      schema: {
+        $id: "batch-ajv-model",
+        title: "batch-ajv-title",
+        "x-schema-version": "1",
+        type: "object",
+        properties: {
+          value: { type: "number" },
+        },
+        required: ["value"],
+        additionalProperties: false,
       },
-    }
+    })
 
     const { BaseTopic } = CreateKTTopicBatch<
       Array<{
@@ -41,7 +52,25 @@ describe("schema codec integration", () => {
       },
     ])
 
-    expect(payload.messages[0]?.value).toBe(JSON.stringify({ value: 2 }))
-    expect(BaseTopic.decode(payload.messages[0]?.value || "{}")).toEqual({ value: 2 })
+    expect(codec.schemaMeta).toEqual({
+      provider: "ajv",
+      schemaName: "batch-ajv-title",
+      schemaId: "batch-ajv-model",
+      schemaVersion: "1",
+    })
+    expect(BaseTopic.decode(payload.messages[0]?.value || "{}")).toEqual({ value: 1 })
+
+    expect(() => BaseTopic([
+      {
+        value: {
+          value: "bad",
+        } as unknown as BatchValue,
+        key: KafkaMessageKey.fromString("k2"),
+      },
+    ])).toThrow(KTSchemaValidationError)
+
+    expect(() => BaseTopic.decode(JSON.stringify({
+      value: "bad",
+    }))).toThrow(KTSchemaValidationError)
   })
 })

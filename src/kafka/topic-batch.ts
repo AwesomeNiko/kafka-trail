@@ -31,10 +31,17 @@ const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(
   settings: KTTopicSettings,
   validatorFn?: KTTopicPayloadParser<Payload[number]['value']>,
 ): KTTopicBatchEvent<Payload> => {
+  const validatePayload = (payload: unknown): payload is Payload[number]["value"] => {
+    validatorFn?.validate?.(payload)
+
+    return true
+  }
+
   const fn = (payload: KTTopicBatchRawMessage): KTTopicBatchPayload => {
     const topicBatchMessages: KTTopicBatchMessage[] = []
 
     for (const data of payload) {
+      validatePayload(data.value)
       const payloadToSend = validatorFn
         ? validatorFn.encode(data.value as Payload[number]['value'])
         : ktEncode(data.value)
@@ -53,7 +60,12 @@ const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(
   }
 
   fn.topicSettings = settings
-  fn.decode = (validatorFn?.decode ?? ktDecode) as KTTopicBatchEvent<Payload>['decode']
+  fn.decode = ((data: string | Buffer) => {
+    const decoded = (validatorFn?.decode ?? ktDecode<Payload[number]['value']>)(data)
+    validatePayload(decoded)
+
+    return decoded
+  }) as KTTopicBatchEvent<Payload>['decode']
 
   return fn
 }

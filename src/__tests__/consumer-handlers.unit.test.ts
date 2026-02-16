@@ -1,8 +1,11 @@
 import { describe, expect, it } from "@jest/globals";
+import { z } from "zod";
 
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
 import { CreateKTTopic, KTTopic } from "../kafka/topic.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import { createZodCodec } from "../libs/schema/adapters/zod-adapter.js";
+import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
 
 describe("CreateKTTopic", () => {
   it("should encode payload with default parser and add traceId", () => {
@@ -62,6 +65,43 @@ describe("CreateKTTopic", () => {
 
     expect(payload.message).toBe(JSON.stringify({ fieldForPayload: 101 }));
     expect(BaseTopic.decode(payload.message)).toEqual({ fieldForPayload: 201 });
+  });
+
+  it("should validate KTTopic payloads with real zod schema", () => {
+    const codec = createZodCodec(z.object({
+      fieldForPayload: z.number(),
+    }).meta({
+      id: "topic-zod-model",
+      schemaVersion: "1",
+    }))
+
+    const { BaseTopic } = CreateKTTopic<{
+      fieldForPayload: number
+    }>({
+      topic: KafkaTopicName.fromString("test.create-topic.validate"),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+      configEntries: [],
+    }, codec);
+
+    const validPayload = BaseTopic({ fieldForPayload: 1 }, {
+      messageKey: KafkaMessageKey.fromString("validate-key"),
+      meta: {},
+    });
+
+    expect(BaseTopic.decode(validPayload.message)).toEqual({ fieldForPayload: 1 });
+
+    expect(() => BaseTopic({
+      fieldForPayload: "bad",
+    } as unknown as { fieldForPayload: number }, {
+      messageKey: KafkaMessageKey.fromString("invalid-encode-key"),
+      meta: {},
+    })).toThrow(KTSchemaValidationError);
+
+    expect(() => BaseTopic.decode(JSON.stringify({
+      fieldForPayload: "bad",
+    }))).toThrow(KTSchemaValidationError);
   });
 
   it("should return DLQTopic = null when createDLQ is false", () => {
