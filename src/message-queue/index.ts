@@ -111,7 +111,7 @@ class KTMessageQueue<Ctx extends object> {
       eachMessage: async (eachMessagePayload) => {
         const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
-        const span = tracer.startSpan(`kafka-trail: eachMessage`, {
+        const eachMessageSpan = tracer.startSpan(`kafka-trail: eachMessage`, {
           kind: SpanKind.CONSUMER,
           attributes: {
             'messaging.system': 'kafka',
@@ -119,82 +119,83 @@ class KTMessageQueue<Ctx extends object> {
           },
         })
 
-        await context.with(trace.setSpan(context.active(), span), async () => {
+        await context.with(trace.setSpan(context.active(), eachMessageSpan), async () => {
+          try {
+            const { topic, message, partition }  = eachMessagePayload
 
-          const { topic, message, partition }  = eachMessagePayload
+            const topicName = KafkaTopicName.fromString(topic)
 
-          const topicName = KafkaTopicName.fromString(topic)
+            const handler = this.#registeredHandlers.get(topicName)
 
-          const handler = this.#registeredHandlers.get(topicName)
+            if (handler) {
+              const batchedValues: object[] = [];
+              let lastOffset: string | undefined = undefined
 
-          if (handler) {
-            const batchedValues: object[] = [];
-            let lastOffset: string | undefined = undefined
-
-            if (message.value) {
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-              const decodedMessage: object = handler.topic.decode(message.value);
-              batchedValues.push(decodedMessage);
-              lastOffset = message.offset;
-            }
-
-            const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-            const attributes = createHandlerTraceAttributes({
-              topicName,
-              partition,
-              lastOffset,
-              batchedValues,
-              opts: {
-                addPayloadToTrace: this.#addPayloadToTrace,
-              },
-            })
-
-            const span = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
-              kind: SpanKind.CONSUMER,
-              attributes,
-            })
-
-            await context.with(trace.setSpan(context.active(), span), async () => {
-              try {
-                await handler.run(batchedValues, this.#ctx, this, {
-                  partition,
-                  lastOffset,
-                  heartBeat: () => eachMessagePayload.heartbeat(),
-                })
-              } catch (err) {
-                let errorMessage: string = ''
-
-                if (err instanceof Error) {
-                  errorMessage = err.message
-                  this.#logger.error(err)
-                }
-
-                if (handler.topic.topicSettings.createDLQ) {
-                  const Topic = DLQKTTopic(handler.topic.topicSettings)
-                  const Payload = Topic({
-                    originalOffset: lastOffset,
-                    originalTopic: topicName,
-                    oritinalPartition: partition,
-                    key: KafkaMessageKey.fromString(message.key?.toString()),
-                    value: batchedValues,
-                    errorMessage,
-                    failedAt: Date.now(),
-                  }, {
-                    messageKey: KafkaMessageKey.NULL,
-                    meta: {},
-                  })
-                  await this.publishSingleMessage(Payload)
-                } else {
-                  throw err
-                }
+              if (message.value) {
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                const decodedMessage: object = handler.topic.decode(message.value);
+                batchedValues.push(decodedMessage);
+                lastOffset = message.offset;
               }
 
-              span.end()
-            })
-          }
+              const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
-          span.end()
+              const attributes = createHandlerTraceAttributes({
+                topicName,
+                partition,
+                lastOffset,
+                batchedValues,
+                opts: {
+                  addPayloadToTrace: this.#addPayloadToTrace,
+                },
+              })
+
+              const handlerSpan = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
+                kind: SpanKind.CONSUMER,
+                attributes,
+              })
+
+              await context.with(trace.setSpan(context.active(), handlerSpan), async () => {
+                try {
+                  await handler.run(batchedValues, this.#ctx, this, {
+                    partition,
+                    lastOffset,
+                    heartBeat: () => eachMessagePayload.heartbeat(),
+                  })
+                } catch (err) {
+                  let errorMessage: string = ''
+
+                  if (err instanceof Error) {
+                    errorMessage = err.message
+                    this.#logger.error(err)
+                  }
+
+                  if (handler.topic.topicSettings.createDLQ) {
+                    const Topic = DLQKTTopic(handler.topic.topicSettings)
+                    const Payload = Topic({
+                      originalOffset: lastOffset,
+                      originalTopic: topicName,
+                      oritinalPartition: partition,
+                      key: KafkaMessageKey.fromString(message.key?.toString()),
+                      value: batchedValues,
+                      errorMessage,
+                      failedAt: Date.now(),
+                    }, {
+                      messageKey: KafkaMessageKey.NULL,
+                      meta: {},
+                    })
+                    await this.publishSingleMessage(Payload)
+                  } else {
+                    throw err
+                  }
+                } finally {
+                  handlerSpan.end()
+                }
+              })
+            }
+          } finally {
+            eachMessageSpan.end()
+          }
         })
       },
     })
@@ -209,7 +210,7 @@ class KTMessageQueue<Ctx extends object> {
       eachBatch: async (eachBatchPayload) => {
         const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
 
-        const span = tracer.startSpan(`kafka-trail: eachBatch`, {
+        const eachBatchSpan = tracer.startSpan(`kafka-trail: eachBatch`, {
           kind: SpanKind.CONSUMER,
           attributes: {
             'messaging.system': 'kafka',
@@ -217,115 +218,123 @@ class KTMessageQueue<Ctx extends object> {
           },
         })
 
-        await context.with(trace.setSpan(context.active(), span), async () => {
+        await context.with(trace.setSpan(context.active(), eachBatchSpan), async () => {
+          try {
+            const { batch: { topic, messages, partition } } = eachBatchPayload
 
-          const { batch: { topic, messages, partition } } = eachBatchPayload
+            const topicName = KafkaTopicName.fromString(topic)
 
-          const topicName = KafkaTopicName.fromString(topic)
+            const handler = this.#registeredHandlers.get(topicName)
 
-          const handler = this.#registeredHandlers.get(topicName)
+            if (handler) {
+              const heartbeatIntervalMs =
+                this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor)
+              const heartBeatInterval = setInterval(() => {
+                const heartbeatTracer = trace.getTracer(`kafka-trail`, '1.0.0')
+                const heartbeatSpan = heartbeatTracer.startSpan(`kafka-trail: manual-heartbeat`, {
+                  kind: SpanKind.CONSUMER,
+                  attributes: {
+                    'messaging.system': 'kafka',
+                    'messaging.destination': topicNames,
+                  },
+                })
 
-          if (handler) {
-            const heartBeatInterval = setInterval(async () => {
-              const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
+                void context.with(trace.setSpan(context.active(), heartbeatSpan), async () => {
+                  try {
+                    await eachBatchPayload.heartbeat()
+                  } catch (err) {
+                    this.#logger.error(err)
+                  } finally {
+                    heartbeatSpan.end()
+                  }
+                })
+              }, heartbeatIntervalMs)
 
-              const span = tracer.startSpan(`kafka-trail: manual-heartbeat`, {
-                kind: SpanKind.CONSUMER,
-                attributes: {
-                  'messaging.system': 'kafka',
-                  'messaging.destination': topicNames,
-                },
-              })
-              await eachBatchPayload.heartbeat()
-
-              context.with(trace.setSpan(context.active(), span), () => {
-                span.end()
-              })
-            }, this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor))
-
-            const batchedValues: object[] = [];
-            let lastOffset: string | undefined = undefined
-
-            for (const message of messages) {
-              if (batchedValues.length < handler.topic.topicSettings.batchMessageSizeToConsume) {
-                if (message.value) {
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-                  const decodedMessage: object = handler.topic.decode(message.value);
-                  batchedValues.push(decodedMessage);
-                  lastOffset = message.offset;
-                }
-              } else {
-                break;
-              }
-            }
-
-            const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-            const attributes = createHandlerTraceAttributes({
-              topicName,
-              partition,
-              lastOffset,
-              batchedValues,
-              opts: {
-                addPayloadToTrace: this.#addPayloadToTrace,
-              },
-            })
-
-            const span = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
-              kind: SpanKind.CONSUMER,
-              attributes: attributes,
-            })
-
-            await context.with(trace.setSpan(context.active(), span), async () => {
               try {
-                await handler.run(batchedValues, this.#ctx, this, {
+                const batchedValues: object[] = [];
+                let lastOffset: string | undefined = undefined
+
+                for (const message of messages) {
+                  if (batchedValues.length < handler.topic.topicSettings.batchMessageSizeToConsume) {
+                    if (message.value) {
+                      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                      const decodedMessage: object = handler.topic.decode(message.value);
+                      batchedValues.push(decodedMessage);
+                      lastOffset = message.offset;
+                    }
+                  } else {
+                    break;
+                  }
+                }
+
+                const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
+
+                const attributes = createHandlerTraceAttributes({
+                  topicName,
                   partition,
                   lastOffset,
-                  heartBeat: () => eachBatchPayload.heartbeat(),
-                  resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
+                  batchedValues,
+                  opts: {
+                    addPayloadToTrace: this.#addPayloadToTrace,
+                  },
                 })
-              } catch (err) {
-                let errorMessage: string = ''
 
-                if (err instanceof Error) {
-                  errorMessage = err.message
-                  this.#logger.error(err)
-                }
+                const handlerSpan = tracer.startSpan(`kafka-trail: handler ${topicName}`, {
+                  kind: SpanKind.CONSUMER,
+                  attributes: attributes,
+                })
 
-                if (handler.topic.topicSettings.createDLQ) {
-                  const Topic = DLQKTTopic(handler.topic.topicSettings)
-                  const Payload = Topic({
-                    originalOffset: lastOffset,
-                    originalTopic: topicName,
-                    oritinalPartition: partition,
-                    key: KafkaMessageKey.fromString(JSON.stringify(messages.map(m=>m.key?.toString()))),
-                    value: batchedValues,
-                    errorMessage,
-                    failedAt: Date.now(),
-                  }, {
-                    messageKey: KafkaMessageKey.NULL,
-                    meta: {},
-                  })
-                  await this.publishSingleMessage(Payload)
-                } else {
-                  clearInterval(heartBeatInterval)
-                  throw err
+                await context.with(trace.setSpan(context.active(), handlerSpan), async () => {
+                  try {
+                    await handler.run(batchedValues, this.#ctx, this, {
+                      partition,
+                      lastOffset,
+                      heartBeat: () => eachBatchPayload.heartbeat(),
+                      resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
+                    })
+                  } catch (err) {
+                    let errorMessage: string = ''
+
+                    if (err instanceof Error) {
+                      errorMessage = err.message
+                      this.#logger.error(err)
+                    }
+
+                    if (handler.topic.topicSettings.createDLQ) {
+                      const Topic = DLQKTTopic(handler.topic.topicSettings)
+                      const Payload = Topic({
+                        originalOffset: lastOffset,
+                        originalTopic: topicName,
+                        oritinalPartition: partition,
+                        key: KafkaMessageKey.fromString(JSON.stringify(messages.map(m=>m.key?.toString()))),
+                        value: batchedValues,
+                        errorMessage,
+                        failedAt: Date.now(),
+                      }, {
+                        messageKey: KafkaMessageKey.NULL,
+                        meta: {},
+                      })
+                      await this.publishSingleMessage(Payload)
+                    } else {
+                      throw err
+                    }
+                  } finally {
+                    handlerSpan.end()
+                  }
+                })
+
+                if (lastOffset) {
+                  eachBatchPayload.resolveOffset(lastOffset)
                 }
+              } finally {
+                clearInterval(heartBeatInterval)
               }
-
-              span.end()
-            })
-
-            clearInterval(heartBeatInterval)
-
-            if (lastOffset) {
-              eachBatchPayload.resolveOffset(lastOffset)
             }
 
+            await eachBatchPayload.heartbeat()
+          } finally {
+            eachBatchSpan.end()
           }
-
-          await eachBatchPayload.heartbeat()
-          span.end()
         })
       },
     })
