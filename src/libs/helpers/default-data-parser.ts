@@ -1,7 +1,6 @@
-export type KTTopicPayloadParser<Payload extends object> = {
-  decode: (data: string | Buffer) => Payload
-  encode: (data: Payload) => string
-}
+import type { KTCodec } from "../schema/schema-codec.js";
+
+export type KTTopicPayloadParser<Payload extends object> = KTCodec<Payload>
 
 const ktDecode = <Payload>(data:string | Buffer) => {
   if (Buffer.isBuffer(data)) {
