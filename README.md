@@ -14,7 +14,7 @@ A Node.js library for managing message queues with Kafka, designed to simplify c
 - Create or use existing Kafka topics with specified partitions.
 - Initialize the message queue with minimal setup.
 - Setup consumer handlers
-- Compressing ([see](https://kafka.js.org/docs/1.12.0/producing#compression))
+- Compressing ([see](https://kafka.js.org/docs/producing#compression))
 - Supports custom encoders/decoders.
 
 ---
@@ -38,12 +38,12 @@ Here’s an example of how to use the `@awesomeniko/kafka-trail` library in your
 
 ```typescript
 // Define your Kafka broker URLs
-import { 
-  CreateKTTopic, 
-  KafkaClientId, 
-  KafkaMessageKey, 
-  KafkaTopicName, 
-  KTMessageQueue 
+import {
+  CreateKTTopic,
+  KafkaClientId,
+  KafkaMessageKey,
+  KafkaTopicName,
+  KTMessageQueue
 } from "@awesomeniko/kafka-trail";
 
 const kafkaBrokerUrls = ["localhost:19092"];
@@ -67,7 +67,7 @@ const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
 }>({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
-  batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  batchMessageSizeToConsume: 10, // Works if batchConsuming = true
   createDLQ: false,
 })
 
@@ -80,7 +80,7 @@ await messageQueue.initTopics([
 const payload = TestExampleTopic({
   fieldForPayload: 1,
 }, {
-  messageKey: KafkaMessageKey.NULL, //If you don't want to specify message key
+  messageKey: KafkaMessageKey.NULL, // If you don't want to specify message key
   meta: {},
 })
 
@@ -91,13 +91,12 @@ await messageQueue.publishSingleMessage(payload)
 ```typescript
 import type pino from "pino";
 
-import { 
-  KTHandler, 
-  CreateKTTopic, 
-  KafkaClientId, 
-  KafkaMessageKey, 
-  KafkaTopicName, 
-  KTMessageQueue 
+import {
+  KTHandler,
+  CreateKTTopic,
+  KafkaClientId,
+  KafkaTopicName,
+  KTMessageQueue
 } from "@awesomeniko/kafka-trail";
 
 // Another dependency example
@@ -131,7 +130,7 @@ export const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
 }>({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
-  batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  batchMessageSizeToConsume: 10, // Works if batchConsuming = true
   createDLQ: false,
 })
 
@@ -168,7 +167,7 @@ await messageQueue.initConsumer({
     brokerUrls: kafkaBrokerUrls,
     clientId: KafkaClientId.fromString('hostname'),
     connectionTimeout: 30_000,
-    consumerGroupId: 'consumer-group-id', 
+    consumerGroupId: 'consumer-group-id',
     batchConsuming: true // default false
   },
   pureConfig: {},
@@ -178,13 +177,13 @@ await messageQueue.initConsumer({
 
 ### For both consumer and producer:
 ```typescript
-import { 
-  KTHandler, 
-  CreateKTTopic, 
-  KafkaClientId, 
-  KafkaMessageKey, 
-  KafkaTopicName, 
-  KTMessageQueue 
+import {
+  KTHandler,
+  CreateKTTopic,
+  KafkaClientId,
+  KafkaMessageKey,
+  KafkaTopicName,
+  KTMessageQueue
 } from "@awesomeniko/kafka-trail";
 
 const kafkaBrokerUrls = ["localhost:19092"];
@@ -198,7 +197,7 @@ const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
 }>({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
-  batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  batchMessageSizeToConsume: 10, // Works if batchConsuming = true
   createDLQ: false,
 })
 
@@ -220,7 +219,7 @@ await messageQueue.initTopics([
 // Create topic handler
 const testExampleTopicHandler = KTHandler({
   topic: TestExampleTopic,
-  run: async (payload, _, publisher, { heartbeat, partition, lastOffset, resolveOffset }) => { // resolveOffset available for batchConsuming = true only
+  run: async (payload, _, publisher, { resolveOffset }) => { // resolveOffset available for batchConsuming = true only
     // Ts will show you right type for `payload` variable from `TestExampleTopic`
 
     const [data] = payload
@@ -237,6 +236,10 @@ const testExampleTopicHandler = KTHandler({
     })
 
     await publisher.publishSingleMessage(newPayload)
+
+    if (resolveOffset) {
+      // optional manual offset control when needed
+    }
   },
 })
 
@@ -250,7 +253,7 @@ await messageQueue.initConsumer({
     brokerUrls: kafkaBrokerUrls,
     clientId: KafkaClientId.fromString('hostname'),
     connectionTimeout: 30_000,
-    consumerGroupId: 'consumer-group-id', 
+    consumerGroupId: 'consumer-group-id',
     batchConsuming: true // default false
   },
   pureConfig: {},
@@ -275,7 +278,7 @@ process.on("SIGTERM", async () => {
 ### Compression codec
 By default, lib using LZ4 codec to compress and decompress data.
 You can override it, by passing via `KTKafkaSettings` type. Be careful - producer and consumer should have same codec.
-[Ref docs](https://kafka.js.org/docs/1.12.0/producing#compression). Example:
+[Ref docs](https://kafka.js.org/docs/producing#compression). Example:
 
 ```typescript
 import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
@@ -314,6 +317,8 @@ await messageQueue.initProducer({
 You can provide custom encoders / decoders for sending / receiving data. Example:
 
 ```typescript
+import { CreateKTTopic, KafkaTopicName } from "@awesomeniko/kafka-trail";
+
 type MyModel = {
   fieldForPayload: number
 }
@@ -321,7 +326,7 @@ type MyModel = {
 const { BaseTopic: TestExampleTopic } = CreateKTTopic<MyModel>({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
-  batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  batchMessageSizeToConsume: 10, // Works if batchConsuming = true
   createDLQ: false,
 }, {
   encode: (data) => {
@@ -335,6 +340,71 @@ const { BaseTopic: TestExampleTopic } = CreateKTTopic<MyModel>({
     return JSON.parse(data) as MyModel
   },
 })
+```
+
+### AJV schema adapter
+Use `createAjvCodecFromSchema` when your payload contract is JSON Schema and you want runtime validation via AJV.
+
+```typescript
+import { Ajv } from "ajv";
+import { CreateKTTopic, KafkaTopicName, createAjvCodecFromSchema } from "@awesomeniko/kafka-trail";
+
+type UserEvent = {
+  id: number
+}
+
+const ajv = new Ajv()
+
+const codec = createAjvCodecFromSchema<UserEvent>({
+  ajv,
+  schema: {
+    $id: "user-event-id",
+    title: "user-event",
+    type: "object",
+    properties: {
+      id: {
+        type: "number",
+      },
+    },
+    required: ["id"],
+    additionalProperties: false,
+  },
+})
+
+const { BaseTopic } = CreateKTTopic<UserEvent>({
+  topic: KafkaTopicName.fromString('test.ajv.topic'),
+  numPartitions: 1,
+  batchMessageSizeToConsume: 10,
+  createDLQ: false,
+}, codec)
+```
+
+### Zod schema adapter
+Use `createZodCodec` when schema is defined in application code with Zod.
+
+```typescript
+import { z } from "zod";
+import { CreateKTTopic, KafkaTopicName, createZodCodec } from "@awesomeniko/kafka-trail";
+
+type UserEvent = {
+  id: number
+}
+
+const userEventSchema = z.object({
+  id: z.number(),
+}).meta({
+  id: "user-event",
+  schemaVersion: "1",
+})
+
+const codec = createZodCodec<UserEvent>(userEventSchema)
+
+const { BaseTopic } = CreateKTTopic<UserEvent>({
+  topic: KafkaTopicName.fromString('test.zod.topic'),
+  numPartitions: 1,
+  batchMessageSizeToConsume: 10,
+  createDLQ: false,
+}, codec)
 ```
 
 ### Sending batch messages
@@ -412,6 +482,99 @@ await messageQueue.initTopics([
   failedAt: 1703123456789
 }
 ```
+
+### AWS Glue Schema Registry (with in-memory cache)
+You can create a codec from AWS Glue Schema Registry and reuse it in `CreateKTTopic` / `CreateKTTopicBatch`.
+The codec is initialized asynchronously (schema is fetched before codec creation), then works synchronously at runtime.
+
+1) Create native AWS Glue adapter (IAM/default credentials):
+
+```typescript
+import { Ajv } from "ajv";
+import {
+  createAwsGlueCodec,
+  createAwsGlueSchemaRegistryAdapter,
+  clearAwsGlueSchemaCache,
+} from "@awesomeniko/kafka-trail";
+
+type UserEvent = {
+  id: number
+}
+
+const ajv = new Ajv()
+const glueAdapter = await createAwsGlueSchemaRegistryAdapter({
+  region: "eu-central-1",
+  preload: {
+    schemas: [{
+      registryName: "my-registry",
+      schemaName: "user-events",
+      schemaVersionId: "schema-version-id",
+    }],
+  },
+})
+
+const codec = await createAwsGlueCodec<UserEvent>({
+  ajv,
+  glue: glueAdapter,
+  schema: {
+    registryName: "my-registry",
+    schemaName: "user-events",
+    schemaVersionId: "schema-version-id",
+  },
+})
+
+// clearAwsGlueSchemaCache() // optional manual cache reset
+```
+
+2) Static AWS keys (instead of IAM/default chain):
+
+```typescript
+const glueAdapter = await createAwsGlueSchemaRegistryAdapter({
+  region: "eu-central-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    sessionToken: process.env.AWS_SESSION_TOKEN,
+  },
+})
+```
+
+3) Zod mode (same Glue adapter, no manual `getSchema`):
+
+```typescript
+import { z } from "zod";
+import { createAwsGlueCodec, createAwsGlueSchemaRegistryAdapter } from "@awesomeniko/kafka-trail";
+
+type UserEvent = {
+  id: number
+}
+
+const glueAdapter = await createAwsGlueSchemaRegistryAdapter({
+  region: "eu-central-1",
+})
+
+const codec = await createAwsGlueCodec<UserEvent>({
+  validator: "zod",
+  glue: glueAdapter,
+  schema: {
+    registryName: "my-registry",
+    schemaName: "user-events",
+  },
+  zodSchemaFactory: ({ schema }) => {
+    // Build your zod schema using Glue JSON schema payload
+    return z.object({
+      id: z.number(),
+    })
+  },
+})
+```
+
+Notes:
+- cache is in-memory and enabled by default per process;
+- cache key is based on registry + schema identifiers and is shared for AJV/Zod modes;
+- unsupported Glue data formats (for example AVRO/PROTOBUF) are rejected in this version;
+- call `glueAdapter.destroy()` on shutdown if you want to close the AWS SDK client explicitly;
+- call `clearAwsGlueSchemaCache()` if you need to invalidate cached schemas manually.
 
 ### Deprecated topic creators
 `KTTopic(...)` and `KTTopicBatch(...)` are kept only for backward compatibility and throw runtime errors:

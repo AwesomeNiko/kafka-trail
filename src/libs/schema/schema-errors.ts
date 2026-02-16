@@ -15,3 +15,16 @@ export class KTSchemaValidationError extends Error {
     this.details = params.details
   }
 }
+
+export class KTSchemaRegistryError extends Error {
+  readonly details: unknown
+
+  constructor(params: {
+    message: string
+    details?: unknown
+  }) {
+    super(params.message)
+    this.name = "KTSchemaRegistryError"
+    this.details = params.details
+  }
+}
