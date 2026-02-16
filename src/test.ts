@@ -1,9 +1,9 @@
-// // import { KafkaTopicName, KTHandler, KTMessageQueue, KTTopic } from "./index.ts";
-// // import { createTestDataTopicHandler, createTestTopic } from "./test-module-file.ts";
+// // import { KafkaTopicName, KTHandler, KTMessageQueue, KTTopic } from "./index.js";
+// // import { createTestDataTopicHandler, createTestTopic } from "./test-module-file.js";
 // //
-// import { KafkaMessageKey } from "./libs/branded-types/kafka/index.ts";
-// import { KTMessageQueue } from "./message-queue/index.ts";
-// import { createTestBatchTopic, createTestTopic } from "./test-module-file.ts";
+// import { KafkaMessageKey } from "./libs/branded-types/kafka/index.js";
+// import { KTMessageQueue } from "./message-queue/index.js";
+// import { createTestBatchTopic, createTestTopic } from "./test-module-file.js";
 //
 // const TestTopic = createTestBatchTopic()
 //

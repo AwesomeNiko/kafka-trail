@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "@jest/globals";
 import { pino } from "pino";
 
-import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
-import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
+import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
-import { createKafkaMocks } from "./mocks/create-mocks.ts";
+import { createKafkaMocks } from "./mocks/create-mocks.js";
 
 const { consumerSubscribe, kafkaConsumerMock } = createKafkaMocks({
   topicName: "consumer-test-topic",

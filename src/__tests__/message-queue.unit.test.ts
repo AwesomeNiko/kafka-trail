@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
-import { ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.ts";
-import { KTHandler } from "../kafka/consumer-handler.ts";
-import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
-import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
-import { CreateKTTopic } from "../kafka/topic.ts";
-import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
-import { KTMessageQueue } from "../message-queue/index.ts";
+import { ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
+import { KTHandler } from "../kafka/consumer-handler.js";
+import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
+import { KTKafkaProducer } from "../kafka/kafka-producer.js";
+import { CreateKTTopic } from "../kafka/topic.js";
+import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import { KTMessageQueue } from "../message-queue/index.js";
 
-import { createKafkaMocks } from "./mocks/create-mocks.ts";
+import { createKafkaMocks } from "./mocks/create-mocks.js";
 
 // @ts-expect-error too much return arguments
 const kafkaProducerInitMock = jest.spyOn(KTKafkaProducer.prototype, 'init').mockImplementation(jest.fn);

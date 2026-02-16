@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { CreateKTTopic } from "../kafka/topic.ts";
-import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { CreateKTTopic } from "../kafka/topic.js";
+import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 describe("CreateKTTopic", () => {
   it("should encode payload with default parser and add traceId", () => {

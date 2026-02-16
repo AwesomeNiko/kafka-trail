@@ -1,4 +1,4 @@
-// import { type KafkaMessageKey, KafkaTopicName, KTHandler, KTTopic, KTTopicBatch } from "./index.ts";
+// import { type KafkaMessageKey, KafkaTopicName, KTHandler, KTTopic, KTTopicBatch } from "./index.js";
 //
 // const createTestBatchTopic = () => KTTopicBatch<{
 //   value: {

@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "@jest/globals";
 
-import { KTHandler } from "../kafka/consumer-handler.ts";
-import { CreateKTTopic } from "../kafka/topic.ts";
-import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
-import { KTMessageQueue } from "../message-queue/index.ts";
+import { KTHandler } from "../kafka/consumer-handler.js";
+import { CreateKTTopic } from "../kafka/topic.js";
+import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import { KTMessageQueue } from "../message-queue/index.js";
 
 const getIntTestConfig = () => {
   return {
