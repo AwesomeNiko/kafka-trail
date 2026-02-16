@@ -1,7 +1,7 @@
 import type { IHeaders, ITopicConfig } from "kafkajs";
 import { v4 } from "uuid";
 
-import { KafkaTopicName , KafkaMessageKey } from "../libs/branded-types/kafka/index.js";
+import type { KafkaTopicName , KafkaMessageKey } from "../libs/branded-types/kafka/index.js";
 import type { KTTopicPayloadParser } from "../libs/helpers/default-data-parser.js";
 import { ktEncode , ktDecode  } from "../libs/helpers/default-data-parser.js";
 import { CreateDlqTopicName } from "../libs/helpers/topic-name.js";
@@ -46,7 +46,7 @@ export type DLQPayload<T> = {
 }
 
 /**
- * @deprecated
+ * @deprecated Use CreateKTTopic instead
  */
 export const KTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<Payload>): KTTopicEvent<Payload>  => {
   const fn = (payload: Payload,
