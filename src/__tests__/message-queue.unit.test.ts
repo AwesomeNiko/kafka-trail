@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
-import { ProducerNotInitializedError } from "../custom-errors/kafka-errors.ts";
+import { ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.ts";
 import { KTHandler } from "../kafka/consumer-handler.ts";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
 import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
@@ -137,5 +137,37 @@ describe("KTMessageQueue test", () => {
 
     await expect(mq.publishBatchMessages(batchPayload)).rejects.toBeInstanceOf(ProducerNotInitializedError);
     expect(kafkaProducerSendBatchMessagesMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("should throw clear error when initConsumer is called with DLQ-enabled handler", async () => {
+    const { BaseTopic: DLQTopic } = CreateKTTopic<{
+      fieldForPayload: number
+    }>({
+      topic: KafkaTopicName.fromString('test.example.consumer.dlq'),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: true,
+    })
+
+    const mq = new KTMessageQueue();
+    const dlqHandler = KTHandler({
+      topic: DLQTopic,
+      run: () => Promise.resolve(),
+    })
+
+    mq.registerHandlers([dlqHandler]);
+
+    await expect(mq.initConsumer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-1"),
+        connectionTimeout: 30000,
+        consumerGroupId: 'group - ' + new Date().toString(),
+      },
+      pureConfig: {},
+    })).rejects.toBeInstanceOf(ProducerInitRequiredForDLQError);
+
+    expect(kafkaConsumerInitMock).toHaveBeenCalledTimes(0);
+    expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledTimes(0);
   });
 });
