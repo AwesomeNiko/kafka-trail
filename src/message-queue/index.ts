@@ -164,6 +164,7 @@ class KTMessageQueue<Ctx extends object> {
                 })
               } catch (err) {
                 let errorMessage: string = ''
+
                 if (err instanceof Error) {
                   errorMessage = err.message
                   this.#logger.error(err)
@@ -181,13 +182,14 @@ class KTMessageQueue<Ctx extends object> {
                     failedAt: Date.now(),
                   }, {
                     messageKey: KafkaMessageKey.NULL,
-                    meta: {}
+                    meta: {},
                   })
                   await this.publishSingleMessage(Payload)
                 } else {
                   throw err
                 }
               }
+
               span.end()
             })
           }
@@ -284,6 +286,7 @@ class KTMessageQueue<Ctx extends object> {
                 })
               } catch (err) {
                 let errorMessage: string = ''
+
                 if (err instanceof Error) {
                   errorMessage = err.message
                   this.#logger.error(err)
@@ -301,7 +304,7 @@ class KTMessageQueue<Ctx extends object> {
                     failedAt: Date.now(),
                   }, {
                     messageKey: KafkaMessageKey.NULL,
-                    meta: {}
+                    meta: {},
                   })
                   await this.publishSingleMessage(Payload)
                 } else {
@@ -309,6 +312,7 @@ class KTMessageQueue<Ctx extends object> {
                   throw err
                 }
               }
+
               span.end()
             })
 
@@ -336,6 +340,7 @@ class KTMessageQueue<Ctx extends object> {
       if (!topicEvent) {
         throw new Error("Attemt to create topic that doesn't exists (null, instead of KTTopicEvent)")
       }
+
       await this.#ktProducer.createTopic(topicEvent.topicSettings);
     }
   }
