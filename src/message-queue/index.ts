@@ -17,8 +17,8 @@ import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
 class KTMessageQueue<Ctx extends object> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #registeredHandlers: Map<KafkaTopicName, KTHandler<any, Ctx & KafkaLogger>> = new Map();
-  #ktProducer!: KTKafkaProducer;
-  #ktConsumer!: KTKafkaConsumer;
+  #ktProducer?: KTKafkaProducer;
+  #ktConsumer?: KTKafkaConsumer;
   #logger: Console | pino.Logger = console;
   #ctx: Ctx & KafkaLogger
   // Trace settings
@@ -46,16 +46,32 @@ class KTMessageQueue<Ctx extends object> {
     this.#addPayloadToTrace = params?.tracingSettings?.addPayloadToTrace ?? false
   }
 
-  getConsumer() {
+  getConsumer(): KTKafkaConsumer | undefined {
     return this.#ktConsumer;
   }
 
-  getProducer() {
+  getProducer(): KTKafkaProducer | undefined {
     return this.#ktProducer;
   }
 
   getAdmin() {
     return this.#ktProducer?.getAdmin()
+  }
+
+  #requireConsumer(): KTKafkaConsumer {
+    if (!this.#ktConsumer) {
+      throw new Error("Consumer is not initialized");
+    }
+
+    return this.#ktConsumer;
+  }
+
+  #requireProducer(): KTKafkaProducer {
+    if (!this.#ktProducer) {
+      throw new ProducerNotInitializedError();
+    }
+
+    return this.#ktProducer;
   }
 
   async initProducer(params: KafkaBrokerConfig) {
@@ -105,8 +121,9 @@ class KTMessageQueue<Ctx extends object> {
 
   async #subscribeAllEachMessages(){
     const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
-    await this.#ktConsumer.subscribeTopic(topicNames)
-    await this.#ktConsumer.consumer.run({
+    const consumer = this.#requireConsumer();
+    await consumer.subscribeTopic(topicNames)
+    await consumer.consumer.run({
       partitionsConsumedConcurrently: 1,
       eachMessage: async (eachMessagePayload) => {
         const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
@@ -203,8 +220,9 @@ class KTMessageQueue<Ctx extends object> {
 
   async #subscribeAll() {
     const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
-    await this.#ktConsumer.subscribeTopic(topicNames)
-    await this.#ktConsumer.consumer.run({
+    const consumer = this.#requireConsumer();
+    await consumer.subscribeTopic(topicNames)
+    await consumer.consumer.run({
       eachBatchAutoResolve: false,
       partitionsConsumedConcurrently: 1,
       eachBatch: async (eachBatchPayload) => {
@@ -228,7 +246,7 @@ class KTMessageQueue<Ctx extends object> {
 
             if (handler) {
               const heartbeatIntervalMs =
-                this.#ktConsumer.heartBeatInterval - Math.floor(this.#ktConsumer.heartBeatInterval * this.#ktConsumer.heartbeatEarlyFactor)
+                consumer.heartBeatInterval - Math.floor(consumer.heartBeatInterval * consumer.heartbeatEarlyFactor)
               const heartBeatInterval = setInterval(() => {
                 const heartbeatTracer = trace.getTracer(`kafka-trail`, '1.0.0')
                 const heartbeatSpan = heartbeatTracer.startSpan(`kafka-trail: manual-heartbeat`, {
@@ -341,16 +359,14 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   async initTopics<T extends object>(topicEvents: KTTopicEvent<T>[]) {
-    if (!this.#ktProducer) {
-      throw new Error("Producer field is required");
-    }
+    const producer = this.#requireProducer();
 
     for (const topicEvent of topicEvents) {
       if (!topicEvent) {
         throw new Error("Attemt to create topic that doesn't exists (null, instead of KTTopicEvent)")
       }
 
-      await this.#ktProducer.createTopic(topicEvent.topicSettings);
+      await producer.createTopic(topicEvent.topicSettings);
     }
   }
 
@@ -369,7 +385,9 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   publishSingleMessage(topic: KTTopicPayloadWithMeta) {
-    if (!this.#ktProducer) {
+    const producer = this.#ktProducer;
+
+    if (!producer) {
       return Promise.reject(new ProducerNotInitializedError());
     }
 
@@ -381,7 +399,7 @@ class KTMessageQueue<Ctx extends object> {
 
     return context.with(trace.setSpan(context.active(), span), async () => {
       try {
-        const res = await this.#ktProducer.sendSingleMessage({
+        const res = await producer.sendSingleMessage({
           topicName: topic.topicName,
           value: topic.message,
           messageKey: topic.messageKey,
@@ -400,7 +418,9 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   publishBatchMessages(topic: KTTopicBatchPayload) {
-    if (!this.#ktProducer) {
+    const producer = this.#ktProducer;
+
+    if (!producer) {
       return Promise.reject(new ProducerNotInitializedError());
     }
 
@@ -415,7 +435,7 @@ class KTMessageQueue<Ctx extends object> {
 
     return context.with(trace.setSpan(context.active(), span), async () => {
       try {
-        const res = await this.#ktProducer.sendBatchMessages(topic);
+        const res = await producer.sendBatchMessages(topic);
         span.end()
 
         return res
