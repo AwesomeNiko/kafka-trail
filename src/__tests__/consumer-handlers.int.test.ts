@@ -53,6 +53,8 @@ describe("Consumer handlers integration", () => {
 
             clearTimeout(timeout);
             resolve(data.fieldForPayload);
+
+            return Promise.resolve()
           },
         });
 

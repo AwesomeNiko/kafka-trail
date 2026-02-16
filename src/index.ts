@@ -25,5 +25,5 @@ export {
   ArgumentIsRequired,
   CustomPartitioner,
   CreateKTTopic,
-  CreateKTTopicBatch
+  CreateKTTopicBatch,
 }

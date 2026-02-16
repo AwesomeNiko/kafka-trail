@@ -28,8 +28,8 @@ describe("KafkaProducer test", () => {
     kafkaProducerConnectFn.mockClear();
     fetchTopicMetadataFn.mockClear();
     createPartitionsFn.mockClear();
-    createTopicsFn.mockClear(),
-    sendMsgFn.mockClear(),
+    createTopicsFn.mockClear();
+    sendMsgFn.mockClear();
     kafkaAdminMock.mockClear();
     kafkaProducerMock.mockClear();
   });

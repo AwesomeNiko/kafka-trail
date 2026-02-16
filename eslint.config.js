@@ -1,0 +1,180 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { FlatCompat } from "@eslint/eslintrc";
+import js from "@eslint/js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const compat = new FlatCompat({
+  baseDirectory: __dirname,
+  recommendedConfig: js.configs.recommended,
+  allConfig: js.configs.all,
+});
+
+const withFiles = (configs, files) => configs.map((config) => ({ ...config, files }));
+
+const sharedRules = {
+  eqeqeq: "error",
+  "no-var": "error",
+  "prefer-const": "error",
+  indent: ["error", 2, { SwitchCase: 1 }],
+  curly: ["error", "multi-line"],
+  "object-curly-spacing": ["error", "always"],
+  "object-property-newline": ["error", { allowAllPropertiesOnSameLine: true }],
+  "object-curly-newline": [
+    "error",
+    {
+      ObjectExpression: { consistent: true, multiline: true },
+      ObjectPattern: { consistent: true, multiline: true },
+      ImportDeclaration: "never",
+      ExportDeclaration: { multiline: true, minProperties: 3 },
+    },
+  ],
+  "comma-dangle": ["error", "always-multiline"],
+  "block-spacing": "error",
+  "no-restricted-syntax": [
+    "error",
+    {
+      selector:
+        "CallExpression[callee.object.name='console'][callee.property.name=/^(log|warn|error|info|trace)$/]",
+      message: "Don't use console, use pino logger (or another library) instead",
+    },
+    {
+      selector: "TSEnumDeclaration",
+      message: "Don't declare enums",
+    },
+    {
+      selector: "CallExpression[callee.property.name='save']",
+      message: "Don't use typeorm save, use insert or update instead",
+    },
+  ],
+  "import/no-duplicates": "warn",
+  "import/order": [
+    "warn",
+    {
+      alphabetize: {
+        order: "asc",
+        caseInsensitive: true,
+      },
+      "newlines-between": "always",
+      groups: ["builtin", "external", "internal", "parent", "index", "sibling", "unknown"],
+      pathGroupsExcludedImportTypes: [],
+    },
+  ],
+  "no-multiple-empty-lines": [
+    "error",
+    {
+      max: 1,
+      maxEOF: 1,
+      maxBOF: 0,
+    },
+  ],
+  "padding-line-between-statements": [
+    "warn",
+    {
+      blankLine: "always",
+      prev: "*",
+      next: "return",
+    },
+    {
+      blankLine: "always",
+      prev: "*",
+      next: "block-like",
+    },
+    {
+      blankLine: "always",
+      prev: "block-like",
+      next: "*",
+    },
+  ],
+};
+
+const jsConfigs = withFiles(
+  compat.config({
+    env: {
+      browser: false,
+      es2023: true,
+      node: true,
+      jest: true,
+    },
+    extends: ["eslint:recommended", "plugin:import/recommended", "prettier"],
+    plugins: ["import", "unused-imports"],
+    parserOptions: {
+      sourceType: "module",
+      ecmaVersion: "latest",
+    },
+    settings: {
+      "import/resolver": {
+        node: true,
+      },
+      "import/internal-regex": "^src",
+    },
+    rules: {
+      ...sharedRules,
+    },
+  }),
+  ["**/*.js", "**/*.cjs", "**/*.mjs"],
+);
+
+const tsConfigs = withFiles(
+  compat.config({
+    env: {
+      browser: false,
+      es2023: true,
+      node: true,
+      jest: true,
+    },
+    extends: [
+      "eslint:recommended",
+      "plugin:@typescript-eslint/eslint-recommended",
+      "plugin:@typescript-eslint/recommended",
+      "plugin:@typescript-eslint/recommended-requiring-type-checking",
+      "plugin:@typescript-eslint/strict",
+      "plugin:import/recommended",
+      "plugin:import/typescript",
+      "prettier",
+    ],
+    globals: {
+      Atomics: "readonly",
+      SharedArrayBuffer: "readonly",
+    },
+    plugins: ["import", "unused-imports", "@typescript-eslint"],
+    parser: "@typescript-eslint/parser",
+    parserOptions: {
+      sourceType: "module",
+      ecmaVersion: "latest",
+      project: "./tsconfig.json",
+    },
+    settings: {
+      "import/parsers": {
+        "@typescript-eslint/parser": [".ts", ".tsx"],
+      },
+      "import/resolver": {
+        typescript: true,
+        node: true,
+      },
+      "import/extensions": [".ts"],
+      "import/internal-regex": "^src",
+    },
+    rules: {
+      ...sharedRules,
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/consistent-type-imports": "warn",
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: false }],
+      "@typescript-eslint/no-explicit-any": "error",
+      "no-unused-vars": "off",
+    },
+  }),
+  ["**/*.ts", "**/*.tsx"],
+);
+
+export default [
+  {
+    ignores: ["node_modules/**", "dist/**", ".eslintrc.cjs", "pnpm-lock.yaml"],
+  },
+  ...jsConfigs,
+  ...tsConfigs,
+];
