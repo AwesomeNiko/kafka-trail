@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it, jest } from "@jest/globals";
 import { z } from "zod";
 
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
@@ -74,6 +74,8 @@ describe("CreateKTTopic", () => {
       id: "topic-zod-model",
       schemaVersion: "1",
     }))
+    const encodeSpy = jest.spyOn(codec, "encode")
+    const decodeSpy = jest.spyOn(codec, "decode")
 
     const { BaseTopic } = CreateKTTopic<{
       fieldForPayload: number
@@ -91,6 +93,8 @@ describe("CreateKTTopic", () => {
     });
 
     expect(BaseTopic.decode(validPayload.message)).toEqual({ fieldForPayload: 1 });
+    expect(encodeSpy).toHaveBeenCalledWith({ fieldForPayload: 1 })
+    expect(decodeSpy).toHaveBeenCalledWith(validPayload.message)
 
     expect(() => BaseTopic({
       fieldForPayload: "bad",
@@ -98,10 +102,12 @@ describe("CreateKTTopic", () => {
       messageKey: KafkaMessageKey.fromString("invalid-encode-key"),
       meta: {},
     })).toThrow(KTSchemaValidationError);
+    expect(encodeSpy).toHaveBeenCalledTimes(1)
 
     expect(() => BaseTopic.decode(JSON.stringify({
       fieldForPayload: "bad",
     }))).toThrow(KTSchemaValidationError);
+    expect(decodeSpy).toHaveBeenCalledTimes(2)
   });
 
   it("should return DLQTopic = null when createDLQ is false", () => {

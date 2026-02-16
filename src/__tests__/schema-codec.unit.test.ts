@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it, jest } from "@jest/globals";
 import { Ajv } from "ajv";
 
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
@@ -31,6 +31,8 @@ describe("schema codec integration", () => {
         additionalProperties: false,
       },
     })
+    const encodeSpy = jest.spyOn(codec, "encode")
+    const decodeSpy = jest.spyOn(codec, "decode")
 
     const { BaseTopic } = CreateKTTopicBatch<
       Array<{
@@ -59,6 +61,8 @@ describe("schema codec integration", () => {
       schemaVersion: "1",
     })
     expect(BaseTopic.decode(payload.messages[0]?.value || "{}")).toEqual({ value: 1 })
+    expect(encodeSpy).toHaveBeenCalledWith({ value: 1 })
+    expect(decodeSpy).toHaveBeenCalledWith(payload.messages[0]?.value || "{}")
 
     expect(() => BaseTopic([
       {
@@ -68,9 +72,11 @@ describe("schema codec integration", () => {
         key: KafkaMessageKey.fromString("k2"),
       },
     ])).toThrow(KTSchemaValidationError)
+    expect(encodeSpy).toHaveBeenCalledTimes(1)
 
     expect(() => BaseTopic.decode(JSON.stringify({
       value: "bad",
     }))).toThrow(KTSchemaValidationError)
+    expect(decodeSpy).toHaveBeenCalledTimes(2)
   })
 })
