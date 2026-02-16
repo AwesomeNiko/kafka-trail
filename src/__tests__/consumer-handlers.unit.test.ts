@@ -1,91 +1,226 @@
-import { describe, expect, it } from "@jest/globals";
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 
-import { CreateKTTopic } from "../kafka/topic.ts";
-import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { KTHandler } from "../kafka/consumer-handler.ts";
+import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
+import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
+import { KTTopic } from "../kafka/topic.ts";
+import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
+import { KTMessageQueue } from "../message-queue/index.ts";
 
-describe("CreateKTTopic", () => {
-  it("should encode payload with default parser and add traceId", () => {
-    const { BaseTopic } = CreateKTTopic<{
-      fieldForPayload: number
-    }>({
-      topic: KafkaTopicName.fromString("test.create-topic.default"),
-      numPartitions: 1,
-      batchMessageSizeToConsume: 10,
-      createDLQ: false,
-      configEntries: [],
-    });
+import { createKafkaMocks } from "./mocks/create-mocks.ts";
 
-    const payload = BaseTopic({ fieldForPayload: 1 }, {
-      messageKey: KafkaMessageKey.NULL,
-      meta: {},
-    });
+// @ts-expect-error too much return arguments
+const kafkaProducerInitMock = jest.spyOn(KTKafkaProducer.prototype, 'init').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
+const kafkaProducerCreateTopicMock = jest.spyOn(KTKafkaProducer.prototype, 'createTopic').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
+const kafkaProducerSendSingleMessageMock = jest.spyOn(KTKafkaProducer.prototype, 'sendSingleMessage').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
+const kafkaConsumerInitMock = jest.spyOn(KTKafkaConsumer.prototype, 'init').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
+const kafkaConsumerSubscribeTopicMock = jest.spyOn(KTKafkaConsumer.prototype, 'subscribeTopic').mockImplementation(jest.fn);
 
-    expect(payload.topicName).toBe("test.create-topic.default");
-    expect(payload.message).toBe(JSON.stringify({ fieldForPayload: 1 }));
-    expect(payload.messageKey).toBeNull();
-    expect(payload.meta.traceId).toEqual(expect.any(String));
+describe("Consumer handlers test", () => {
+  beforeEach(() => {
+    kafkaProducerInitMock.mockClear();
+    kafkaProducerCreateTopicMock.mockClear();
+    kafkaProducerSendSingleMessageMock.mockClear();
+    kafkaConsumerInitMock.mockClear();
+    kafkaConsumerSubscribeTopicMock.mockClear();
   });
 
-  it("should use custom encoder and decoder", () => {
-    const { BaseTopic } = CreateKTTopic<{
+  it("should publishSingleMessage directly successful", async () => {
+    const mq = new KTMessageQueue();
+
+    await mq.initProducer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-1"),
+        connectionTimeout: 30000,
+      },
+      pureConfig: {},
+    });
+
+    const TestExampleTopic = KTTopic<{
       fieldForPayload: number
     }>({
-      topic: KafkaTopicName.fromString("test.create-topic.custom"),
+      topic: KafkaTopicName.fromString('test.example.1'),
       numPartitions: 1,
       batchMessageSizeToConsume: 10,
       createDLQ: false,
-      configEntries: [],
-    }, {
-      encode: (data) => JSON.stringify({
-        fieldForPayload: data.fieldForPayload + 100,
-      }),
-      decode: (data: string | Buffer) => {
-        const dataString = Buffer.isBuffer(data)
-          ? data.toString()
-          : data;
+    })
 
-        const parsed = JSON.parse(dataString) as {
-          fieldForPayload: number
-        };
+    const testExamplePayload = TestExampleTopic({ fieldForPayload: 1 }, {
+      messageKey: KafkaMessageKey.NULL,
+      meta: {},
+    })
 
-        return {
-          fieldForPayload: parsed.fieldForPayload + 100,
-        };
+    await mq.publishSingleMessage(testExamplePayload)
+
+    expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
+      topicName: TestExampleTopic.topicSettings.topic,
+      value: JSON.stringify({ fieldForPayload: 1 }), //Because using default encoder
+      messageKey: null,
+      headers: {
+        traceId: expect.any(String),
+      },
+    });
+  });
+
+  it("should consume data and publish from handler successful", async () => {
+    const mq = new KTMessageQueue();
+
+    const TestExampleTopic = KTTopic<{
+      fieldForPayload: number
+    }>({
+      topic: KafkaTopicName.fromString('test.example.2'),
+      numPartitions: 1,
+      batchMessageSizeToConsume: 10,
+      createDLQ: false,
+    })
+
+    const testExampleTopicHandler = KTHandler({
+      topic: TestExampleTopic,
+      run: async (payload, _, publisher) => {
+        const data = payload[0]
+
+        if (!data) {
+          return
+        }
+
+        const testExamplePayload = TestExampleTopic({ fieldForPayload: data.fieldForPayload + 1 }, {
+          messageKey: KafkaMessageKey.fromString('testMessageKey'),
+          meta: {},
+        })
+
+        await publisher.publishSingleMessage(testExamplePayload)
+      },
+    })
+
+    const { clearAll } = createKafkaMocks({
+      topicName: TestExampleTopic.topicSettings.topic,
+      // @ts-expect-error custom payload
+      payloadToRun: [{ fieldForPayload: 1 }],
+    });
+
+    await mq.initProducer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-1"),
+        connectionTimeout: 30000,
+      },
+      pureConfig: {},
+    });
+
+    mq.registerHandlers([testExampleTopicHandler]);
+
+    await mq.initConsumer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-2"),
+        connectionTimeout: 30000,
+        consumerGroupId: 'group - ' + new Date().toString(),
+      },
+      pureConfig: {},
+    })
+
+    expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
+      topicName: TestExampleTopic.topicSettings.topic,
+      value: JSON.stringify({ fieldForPayload: 2 }), //Because using default encoder
+      messageKey: 'testMessageKey',
+      headers: {
+        traceId: expect.any(String),
       },
     });
 
-    const payload = BaseTopic({ fieldForPayload: 1 }, {
-      messageKey: KafkaMessageKey.fromString("custom-key"),
-      meta: {},
-    });
-
-    expect(payload.message).toBe(JSON.stringify({ fieldForPayload: 101 }));
-    expect(BaseTopic.decode(payload.message)).toEqual({ fieldForPayload: 201 });
+    clearAll()
   });
 
-  it("should return DLQTopic = null when createDLQ is false", () => {
-    const { DLQTopic } = CreateKTTopic({
-      topic: KafkaTopicName.fromString("test.create-topic.no-dlq"),
+  it("should use custom encoder and decoder properly", async () => {
+    const mq = new KTMessageQueue();
+
+    const TestExampleTopic = KTTopic<{
+      fieldForPayload: number
+    }>({
+      topic: KafkaTopicName.fromString('test.example.2'),
       numPartitions: 1,
       batchMessageSizeToConsume: 10,
       createDLQ: false,
-      configEntries: [],
+    }, {
+      encode: (data) => {
+        return JSON.stringify({
+          fieldForPayload: data.fieldForPayload + 100,
+        })
+      },
+      decode: (data:string | Buffer) => {
+        if (Buffer.isBuffer(data)) {
+          data = data.toString()
+        }
+
+        const payload = JSON.parse(data) as {
+          fieldForPayload: number
+        }
+
+        return {
+          fieldForPayload: payload.fieldForPayload + 100,
+        }
+      },
+    })
+
+    const testExampleTopicHandler = KTHandler({
+      topic: TestExampleTopic,
+      run: async (payload, _, publisher) => {
+        const data = payload[0]
+
+        if (!data) {
+          return
+        }
+
+        const testExamplePayload = TestExampleTopic({ fieldForPayload: data.fieldForPayload }, {
+          messageKey: KafkaMessageKey.fromString('testMessageKey'),
+          meta: {},
+        })
+
+        await publisher.publishSingleMessage(testExamplePayload)
+      },
+    })
+
+    const { clearAll } = createKafkaMocks({
+      topicName: TestExampleTopic.topicSettings.topic,
+      // @ts-expect-error custom payload
+      payloadToRun: [{ fieldForPayload: 1 }],
     });
 
-    expect(DLQTopic).toBeNull();
-  });
-
-  it("should return DLQTopic when createDLQ is true and prefix topic with dlq.", () => {
-    const { DLQTopic } = CreateKTTopic({
-      topic: KafkaTopicName.fromString("test.create-topic.with-dlq"),
-      numPartitions: 1,
-      batchMessageSizeToConsume: 10,
-      createDLQ: true,
-      configEntries: [],
+    await mq.initProducer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-1"),
+        connectionTimeout: 30000,
+      },
+      pureConfig: {},
     });
 
-    expect(DLQTopic).not.toBeNull();
-    expect(DLQTopic?.topicSettings.topic).toBe("dlq.test.create-topic.with-dlq");
+    mq.registerHandlers([testExampleTopicHandler]);
+
+    await mq.initConsumer({
+      kafkaSettings: {
+        brokerUrls: ['localhost'],
+        clientId: KafkaClientId.fromString("broker-client-id-2"),
+        connectionTimeout: 30000,
+        consumerGroupId: 'group - ' + new Date().toString(),
+      },
+      pureConfig: {},
+    })
+
+    expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
+      topicName: TestExampleTopic.topicSettings.topic,
+      value: JSON.stringify({ fieldForPayload: 201 }), //Because using default encoder
+      messageKey: 'testMessageKey',
+      headers: {
+        traceId: expect.any(String),
+      },
+    });
+
+    clearAll()
   });
 });
-
