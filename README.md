@@ -24,16 +24,16 @@ A Node.js library for managing message queues with Kafka, designed to simplify c
 Install the library using npm or Yarn:
 
 ```bash
-npm install kafka-trail
+npm install @awesomeniko/kafka-trail
 ```
 Or with Yarn:
 
 ```bash
-yarn add kafka-trail
+yarn add @awesomeniko/kafka-trail
 ```
 
 ## Usage
-Here’s an example of how to use the `kafka-trail` library in your project.
+Here’s an example of how to use the `@awesomeniko/kafka-trail` library in your project.
 ### If you want only producer:
 
 ```typescript
@@ -44,7 +44,7 @@ import {
   KafkaMessageKey, 
   KafkaTopicName, 
   KTMessageQueue 
-} from "kafka-trail";
+} from "@awesomeniko/kafka-trail";
 
 const kafkaBrokerUrls = ["localhost:19092"];
 
@@ -95,7 +95,7 @@ import {
   KafkaMessageKey, 
   KafkaTopicName, 
   KTMessageQueue 
-} from "kafka-trail";
+} from "@awesomeniko/kafka-trail";
 
 // Another dependency example
 class DatabaseClass {
@@ -180,7 +180,7 @@ import {
   KafkaMessageKey, 
   KafkaTopicName, 
   KTMessageQueue 
-} from "kafka-trail";
+} from "@awesomeniko/kafka-trail";
 
 const kafkaBrokerUrls = ["localhost:19092"];
 
@@ -269,7 +269,7 @@ You can override it, by passing via `KTKafkaSettings` type. Be careful - produce
 [Ref docs](https://kafka.js.org/docs/1.12.0/producing#compression). Example:
 
 ```typescript
-import { KTMessageQueue } from "kafka-trail";
+import { KTMessageQueue } from "@awesomeniko/kafka-trail";
 import { CompressionTypes } from "kafkajs";
 import lz4 from "lz4";
 
