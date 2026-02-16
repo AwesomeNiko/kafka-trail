@@ -10,8 +10,8 @@ import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import type { KTTopicBatchPayload } from "../kafka/topic-batch.ts";
-import type { KTTopicEvent, KTTopicPayloadWithMeta } from "../kafka/topic.js";
-import { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import { DLQKTTopic, type KTTopicEvent, type KTTopicPayloadWithMeta } from "../kafka/topic.js";
+import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
 
 class KTMessageQueue<Ctx extends object> {
@@ -52,6 +52,10 @@ class KTMessageQueue<Ctx extends object> {
 
   getProducer() {
     return this.#ktProducer;
+  }
+
+  getAdmin() {
+    return this.#ktProducer?.getAdmin()
   }
 
   async initProducer(params: KafkaBrokerConfig) {
@@ -152,11 +156,38 @@ class KTMessageQueue<Ctx extends object> {
             })
 
             await context.with(trace.setSpan(context.active(), span), async () => {
-              await handler.run(batchedValues, this.#ctx, this, {
-                partition,
-                lastOffset,
-                heartBeat: () => eachMessagePayload.heartbeat(),
-              })
+              try {
+                await handler.run(batchedValues, this.#ctx, this, {
+                  partition,
+                  lastOffset,
+                  heartBeat: () => eachMessagePayload.heartbeat(),
+                })
+              } catch (err) {
+                let errorMessage: string = ''
+                if (err instanceof Error) {
+                  errorMessage = err.message
+                  this.#logger.error(err)
+                }
+
+                if (handler.topic.topicSettings.createDLQ) {
+                  const Topic = DLQKTTopic(handler.topic.topicSettings)
+                  const Payload = Topic({
+                    originalOffset: lastOffset,
+                    originalTopic: topicName,
+                    oritinalPartition: partition,
+                    key: KafkaMessageKey.fromString(message.key?.toString()),
+                    value: batchedValues,
+                    errorMessage,
+                    failedAt: Date.now(),
+                  }, {
+                    messageKey: KafkaMessageKey.NULL,
+                    meta: {}
+                  })
+                  await this.publishSingleMessage(Payload)
+                } else {
+                  throw err
+                }
+              }
               span.end()
             })
           }
@@ -244,12 +275,40 @@ class KTMessageQueue<Ctx extends object> {
             })
 
             await context.with(trace.setSpan(context.active(), span), async () => {
-              await handler.run(batchedValues, this.#ctx, this, {
-                partition,
-                lastOffset,
-                heartBeat: () => eachBatchPayload.heartbeat(),
-                resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
-              })
+              try {
+                await handler.run(batchedValues, this.#ctx, this, {
+                  partition,
+                  lastOffset,
+                  heartBeat: () => eachBatchPayload.heartbeat(),
+                  resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
+                })
+              } catch (err) {
+                let errorMessage: string = ''
+                if (err instanceof Error) {
+                  errorMessage = err.message
+                  this.#logger.error(err)
+                }
+
+                if (handler.topic.topicSettings.createDLQ) {
+                  const Topic = DLQKTTopic(handler.topic.topicSettings)
+                  const Payload = Topic({
+                    originalOffset: lastOffset,
+                    originalTopic: topicName,
+                    oritinalPartition: partition,
+                    key: KafkaMessageKey.fromString(JSON.stringify(messages.map(m=>m.key?.toString()))),
+                    value: batchedValues,
+                    errorMessage,
+                    failedAt: Date.now(),
+                  }, {
+                    messageKey: KafkaMessageKey.NULL,
+                    meta: {}
+                  })
+                  await this.publishSingleMessage(Payload)
+                } else {
+                  clearInterval(heartBeatInterval)
+                  throw err
+                }
+              }
               span.end()
             })
 
@@ -274,6 +333,9 @@ class KTMessageQueue<Ctx extends object> {
     }
 
     for (const topicEvent of topicEvents) {
+      if (!topicEvent) {
+        throw new Error("Attemt to create topic that doesn't exists (null, instead of KTTopicEvent)")
+      }
       await this.#ktProducer.createTopic(topicEvent.topicSettings);
     }
   }

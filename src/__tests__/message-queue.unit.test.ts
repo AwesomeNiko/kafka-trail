@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { KTHandler } from "../kafka/consumer-handler.ts";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
 import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
-import { KTTopic } from "../kafka/topic.ts";
+import { CreateKTTopic } from "../kafka/topic.ts";
 import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
 import { KTMessageQueue } from "../message-queue/index.ts";
 
@@ -38,18 +38,20 @@ describe("KTMessageQueue test", () => {
         clientId: KafkaClientId.fromString("broker-client-id-1"),
         connectionTimeout: 30000,
       },
+      pureConfig: {},
     });
 
     expect(kafkaProducerInitMock).toHaveBeenCalledTimes(1);
   });
 
   it("should register handlers successfully", async () => {
-    const TestExampleTopic = KTTopic<{
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
       fieldForPayload: number
     }>({
       topic: KafkaTopicName.fromString('test.example'),
       numPartitions: 1,
       batchMessageSizeToConsume: 10,
+      createDLQ: false,
     })
 
     const testExampleTopicHandler = KTHandler({
@@ -80,6 +82,7 @@ describe("KTMessageQueue test", () => {
         connectionTimeout: 30000,
         consumerGroupId: 'group - ' + new Date().toString(),
       },
+      pureConfig: {},
     })
 
     expect(kafkaConsumerInitMock).toHaveBeenCalledTimes(1);

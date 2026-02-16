@@ -3,7 +3,8 @@ import type { IHeaders } from "kafkajs";
 import type { KafkaTopicName , KafkaMessageKey } from "../libs/branded-types/kafka/index.js";
 import { ktDecode, ktEncode, type KTTopicPayloadParser } from "../libs/helpers/default-data-parser.js";
 
-import type { KTTopicSettings } from "./topic.ts";
+import type { DLQPayload , KTTopicEvent,  KTTopicSettings } from "./topic.js";
+import { DLQKTTopic  } from "./topic.js";
 
 export type KTTopicBatchRawMessage = Array<Omit<KTTopicBatchMessage, 'value'> & {value: object}>
 
@@ -29,6 +30,9 @@ export type KTTopicBatchEvent<Payload extends object> = {
 export type KTTopicBatch<T extends KTTopicBatchRawMessage>= typeof KTTopicBatch<T>
 export type KTPayloadFromTopicBatch<T> = T extends KTTopicBatchEvent<infer P> ? P : never;
 
+/**
+ * @deprecated Use CreateKTTopicBatch instead
+ */
 export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: KTTopicSettings): KTTopicBatchEvent<Payload>  => {
   const fn = (payload: KTTopicBatchRawMessage): KTTopicBatchPayload=> {
     const topicBatchMessages: KTTopicBatchMessage[] = []
@@ -53,4 +57,18 @@ export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: 
   fn.decode = ktDecode
 
   return fn
+}
+
+export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage> (settings: KTTopicSettings): {
+  BaseTopic: KTTopicBatchEvent<Payload>,
+  DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null
+} => {
+  const BaseTopic = KTTopicBatch<Payload>(settings)
+  let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
+
+  if (settings.createDLQ) {
+    DLQTopic = DLQKTTopic<Payload>(settings)
+  }
+
+  return { BaseTopic, DLQTopic }
 }

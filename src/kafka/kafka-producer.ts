@@ -38,6 +38,10 @@ class KTKafkaProducer extends KTKafkaBroker {
     this.#logger = logger;
   }
 
+  getAdmin() {
+    return this.#admin
+  }
+
   init() {
     return Promise.all([this.#admin.connect(), this.#producer.connect()]);
   }

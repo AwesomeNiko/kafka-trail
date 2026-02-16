@@ -56,20 +56,77 @@ const createKafkaMocks = ({
     subscribe: consumerSubscribe,
     async run(config?: ConsumerRunConfig): Promise<void> {
       if (!config) return Promise.resolve()
-      if (!config.eachBatch) return Promise.resolve()
-
-      const messages = payloadToRun.map(v => ({
+      const messages = payloadToRun.map((v, idx) => ({
+        key: null,
         value: Buffer.from(JSON.stringify(v)),
+        timestamp: '0',
+        attributes: 0,
+        offset: String(idx),
+        headers: {},
       }))
+
+      if (config.eachMessage) {
+        for (const message of messages) {
+          await config.eachMessage({
+            topic: topicName,
+            partition: 0,
+            message,
+            heartbeat(): Promise<void> {
+              return Promise.resolve()
+            },
+            pause(): () => void {
+              return () => undefined
+            },
+          });
+        }
+
+        return Promise.resolve()
+      }
+
+      if (!config.eachBatch) return Promise.resolve()
 
       await config.eachBatch({
         batch: {
           topic: topicName,
-          // @ts-expect-error required another fields from MessageSetEntry | RecordBatchEntry kafka types
-          messages: messages,
+          partition: 0,
+          highWatermark: '0',
+          messages,
+          isEmpty() {
+            return messages.length === 0
+          },
+          firstOffset() {
+            return messages[0]?.offset ?? null
+          },
+          lastOffset() {
+            return messages[messages.length - 1]?.offset ?? '0'
+          },
+          offsetLag() {
+            return '0'
+          },
+          offsetLagLow() {
+            return '0'
+          },
         },
         heartbeat(): Promise<void> {
           return Promise.resolve()
+        },
+        resolveOffset(): void {
+          // noop for unit tests
+        },
+        pause(): () => void {
+          return () => undefined
+        },
+        async commitOffsetsIfNecessary(): Promise<void> {
+          return Promise.resolve()
+        },
+        uncommittedOffsets() {
+          return { topics: [] }
+        },
+        isRunning() {
+          return true
+        },
+        isStale() {
+          return false
         },
       })
 

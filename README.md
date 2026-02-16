@@ -39,7 +39,7 @@ Here’s an example of how to use the `kafka-trail` library in your project.
 ```typescript
 // Define your Kafka broker URLs
 import { 
-  KTTopic, 
+  CreateKTTopic, 
   KafkaClientId, 
   KafkaMessageKey, 
   KafkaTopicName, 
@@ -61,7 +61,7 @@ await messageQueue.initProducer({
 })
 
 // Create topic fn
-const TestExampleTopic = KTTopic<{
+const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
   fieldForPayload: number
 }>({
   topic: KafkaTopicName.fromString('test.example'),
@@ -90,7 +90,7 @@ import type  { pino } from "pino";
 
 import { 
   KTHandler, 
-  KTTopic, 
+  CreateKTTopic, 
   KafkaClientId, 
   KafkaMessageKey, 
   KafkaTopicName, 
@@ -123,7 +123,7 @@ const messageQueue = new KTMessageQueue({
   },
 });
 
-export const TestExampleTopic = KTTopic<{
+export const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
   fieldForPayload: number
 }>({
   topic: KafkaTopicName.fromString('test.example'),
@@ -175,7 +175,7 @@ await messageQueue.initConsumer({
 ```typescript
 import { 
   KTHandler, 
-  KTTopic, 
+  CreateKTTopic, 
   KafkaClientId, 
   KafkaMessageKey, 
   KafkaTopicName, 
@@ -188,7 +188,7 @@ const kafkaBrokerUrls = ["localhost:19092"];
 const messageQueue = new KTMessageQueue();
 
 // Create topic fn
-const TestExampleTopic = KTTopic<{
+const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
   fieldForPayload: number
 }>({
   topic: KafkaTopicName.fromString('test.example'),
@@ -308,7 +308,7 @@ type MyModel = {
   fieldForPayload: number
 }
 
-const TestExampleTopic = KTTopic<MyModel>({
+const { BaseTopic: TestExampleTopic } = CreateKTTopic<MyModel>({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
   batchMessageSizeToConsume: 10, // Works is batchConsuming = true
@@ -331,7 +331,7 @@ You can send batch messages instead of sending one by one, but it required a lit
 
 ```javascript
 // Create topic fn
-const TestExampleTopic = KTTopicBatch({
+const { BaseTopic: TestExampleTopic } = CreateKTTopicBatch({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
   batchMessageSizeToConsume: 10,
@@ -366,6 +366,38 @@ const payload = TestExampleTopic([{
 await messageQueue.publishBatchMessages(payload)
 ```
 
+### Dead Letter Queue (DLQ)
+Automatically route failed messages to DLQ topics for later analysis and reprocessing.
+
+```typescript
+// DLQ topics are automatically created with 'dlq.' prefix
+const { BaseTopic: TestExampleTopic, DLQTopic: DLQTestExampleTopic } = CreateKTTopic<MyPayload>({
+  topic: KafkaTopicName.fromString('my.topic'),
+  numPartitions: 1,
+  batchMessageSizeToConsume: 10,
+  createDLQ: true, // Enables DLQ
+})
+
+// Create or use topic
+await messageQueue.initTopics([
+  TestExampleTopic,
+  DLQTestExampleTopic
+])
+
+// Failed messages automatically sent to: dlq.my.topic with next model:
+{
+  originalOffset: "123",
+  originalTopic: "user.events",
+  originalPartition: 0,
+  key: '["user123","user456"]',
+  value: [
+    { userId: "user123", action: "login" },
+    { userId: "user456", action: "logout" }
+  ],
+  errorMessage: "Database connection failed",
+  failedAt: 1703123456789
+}
+```
 
 ## Contributing
 Contributions are welcome! If you’d like to improve this library:
