@@ -1,4 +1,4 @@
-import type { KafkaConfig } from "kafkajs";
+import type { CompressionTypes as KafkaCompressionTypes, KafkaConfig } from "kafkajs";
 import KafkaJS from "kafkajs";
 import type pino from "pino";
 
@@ -10,8 +10,11 @@ type KTKafkaSettings = {
   clientId: KafkaClientId,
   connectionTimeout: number
   compressionCodec?: {
-    codecType: keyof typeof CompressionCodecs,
-    codecFn: lz4Codec
+    codecType: KafkaCompressionTypes.LZ4,
+    codecFn?: lz4Codec
+  } | {
+    codecType: Exclude<KafkaCompressionTypes, KafkaCompressionTypes.LZ4>,
+    codecFn?: never
   }
 }
 
@@ -35,8 +38,11 @@ class KTKafkaBroker {
 
     const clientId = params.kafkaSettings.clientId ?? `consumer-${Date.now()}`
     const { brokerUrls, connectionTimeout } = params.kafkaSettings;
+    const { compressionCodec } = params.kafkaSettings;
 
-    CompressionCodecs[params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4] = () => params.kafkaSettings.compressionCodec?.codecFn ?? lz4Codec;
+    if (!compressionCodec || compressionCodec.codecType === CompressionTypes.LZ4) {
+      CompressionCodecs[CompressionTypes.LZ4] = () => compressionCodec?.codecFn ?? lz4Codec;
+    }
 
     if (!Array.isArray(brokerUrls)) {
       throw new Error("KafkaBrokerUrls must be an array");

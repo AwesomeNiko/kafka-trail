@@ -16,7 +16,7 @@ describe("KafkaConsumer subscribe config", () => {
     kafkaConsumerMock.mockClear();
   });
 
-  it("should subscribe with fromBeginning=false by default", async () => {
+  it("should subscribe with fromBeginning=true by default", async () => {
     const topicName = KafkaTopicName.fromString("consumer-test-topic");
     const consumer = new KTKafkaConsumer({
       kafkaSettings: {
@@ -34,7 +34,7 @@ describe("KafkaConsumer subscribe config", () => {
     expect(consumerSubscribe).toHaveBeenCalledTimes(1);
     expect(consumerSubscribe).toHaveBeenCalledWith({
       topics: [topicName],
-      fromBeginning: false,
+      fromBeginning: true,
     });
   });
 

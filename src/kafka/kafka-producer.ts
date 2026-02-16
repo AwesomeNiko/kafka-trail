@@ -18,6 +18,7 @@ class KTKafkaProducer extends KTKafkaBroker {
   #producer: Kafka.Producer;
   #admin: Kafka.Admin;
   #logger: pino.Logger;
+  #compressionType: CompressionTypes;
 
   constructor(params: KafkaWithLogger<KTKafkaProducerConfig>) {
     super(params);
@@ -36,6 +37,7 @@ class KTKafkaProducer extends KTKafkaBroker {
     });
     this.#admin = this._kafka.admin();
     this.#logger = logger;
+    this.#compressionType = params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4;
   }
 
   getAdmin() {
@@ -104,7 +106,7 @@ class KTKafkaProducer extends KTKafkaBroker {
 
     await this.#producer.send({
       topic: topicName,
-      compression: CompressionTypes.LZ4,
+      compression: this.#compressionType,
       messages: [
         {
           key: messageKey ?? null,
@@ -120,7 +122,7 @@ class KTKafkaProducer extends KTKafkaBroker {
 
     await this.#producer.send({
       topic: topicName,
-      compression: CompressionTypes.LZ4,
+      compression: this.#compressionType,
       messages,
     });
   }
