@@ -1,4 +1,4 @@
-name: CI and Manual Publish
+name: CI and Release
 
 on:
   push:
@@ -6,6 +6,21 @@ on:
       - "**"
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_type:
+        description: Version bump type
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      base_branch:
+        description: Base branch for release PR
+        required: true
+        type: string
+        default: main
 
 permissions:
   contents: read
@@ -34,11 +49,53 @@ jobs:
       - name: Run unit tests
         run: yarn test:unit
 
-  publish:
-    name: Manual NPM Publish
+  create_release_pr:
+    name: Create Release PR
     runs-on: ubuntu-latest
     needs: verify
     if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Bump package version
+        id: version
+        run: |
+          npm version "${{ inputs.release_type }}" --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: release/v${{ steps.version.outputs.new_version }}
+          base: ${{ inputs.base_branch }}
+          commit-message: chore(release): v${{ steps.version.outputs.new_version }}
+          title: chore(release): v${{ steps.version.outputs.new_version }}
+          body: |
+            Release PR created by workflow.
+
+            - Release type: `${{ inputs.release_type }}`
+            - Version: `v${{ steps.version.outputs.new_version }}`
+          labels: release
+          delete-branch: true
+
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: verify
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
     permissions:
       contents: read
       id-token: write
@@ -46,8 +103,29 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect release merge
+        id: release_check
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          PREVIOUS_VERSION=$(git show HEAD^:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" || echo "")
+
+          if [ -z "$PREVIOUS_VERSION" ]; then
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "new_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Node.js for npm
+        if: steps.release_check.outputs.is_release == 'true'
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -55,10 +133,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
+        if: steps.release_check.outputs.is_release == 'true'
         run: yarn install --frozen-lockfile
 
       - name: Build package
+        if: steps.release_check.outputs.is_release == 'true'
         run: yarn build
 
       - name: Publish to npm
+        if: steps.release_check.outputs.is_release == 'true'
         run: npm publish --provenance
