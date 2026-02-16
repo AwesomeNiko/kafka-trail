@@ -10,26 +10,34 @@ type BatchValue = {
   value: number
 }
 
+const AJV_BATCH_SCHEMA = {
+  $id: "batch-ajv-model",
+  title: "batch-ajv-title",
+  "x-schema-version": "1",
+  type: "object",
+  properties: {
+    value: { type: "number" },
+  },
+  required: ["value"],
+  additionalProperties: false,
+} as const
+
+const createAjvWithSchemaVersionKeyword = () => {
+  const ajv = new Ajv()
+  ajv.addKeyword({
+    keyword: "x-schema-version",
+    schemaType: "string",
+  })
+
+  return ajv
+}
+
 describe("schema codec integration", () => {
   it("should validate KTTopicBatch values with real ajv schema", () => {
-    const ajv = new Ajv()
-    ajv.addKeyword({
-      keyword: "x-schema-version",
-      schemaType: "string",
-    })
+    const ajv = createAjvWithSchemaVersionKeyword()
     const codec = createAjvCodecFromSchema<BatchValue>({
       ajv,
-      schema: {
-        $id: "batch-ajv-model",
-        title: "batch-ajv-title",
-        "x-schema-version": "1",
-        type: "object",
-        properties: {
-          value: { type: "number" },
-        },
-        required: ["value"],
-        additionalProperties: false,
-      },
+      schema: AJV_BATCH_SCHEMA,
     })
     const encodeSpy = jest.spyOn(codec, "encode")
     const decodeSpy = jest.spyOn(codec, "decode")

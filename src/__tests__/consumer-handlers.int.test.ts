@@ -13,6 +13,14 @@ import { createZodCodec } from "../libs/schema/adapters/zod-adapter.js";
 import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
 import { KTMessageQueue } from "../message-queue/index.js";
 
+type ZodIntPayload = {
+  fieldForPayload: number
+}
+
+const ZOD_INT_SCHEMA = z.object({
+  fieldForPayload: z.number(),
+})
+
 const getIntTestConfig = () => {
   return {
     brokerUrl: process.env.KAFKA_BROKER_URL ?? "localhost:19092",
@@ -29,12 +37,8 @@ describe("Consumer handlers integration", () => {
     const producerMq = new KTMessageQueue();
 
     try {
-      const codec = createZodCodec(z.object({
-        fieldForPayload: z.number(),
-      }));
-      const { BaseTopic: TestTopic } = CreateKTTopic<{
-        fieldForPayload: number
-      }>({
+      const codec = createZodCodec(ZOD_INT_SCHEMA);
+      const { BaseTopic: TestTopic } = CreateKTTopic<ZodIntPayload>({
         topic: topicName,
         numPartitions: 1,
         batchMessageSizeToConsume: 10,
@@ -83,12 +87,8 @@ describe("Consumer handlers integration", () => {
     const consumerMq = new KTMessageQueue();
 
     try {
-      const codec = createZodCodec(z.object({
-        fieldForPayload: z.number(),
-      }));
-      const { BaseTopic: TestTopic } = CreateKTTopic<{
-        fieldForPayload: number
-      }>({
+      const codec = createZodCodec(ZOD_INT_SCHEMA);
+      const { BaseTopic: TestTopic } = CreateKTTopic<ZodIntPayload>({
         topic: topicName,
         numPartitions: 1,
         batchMessageSizeToConsume: 10,

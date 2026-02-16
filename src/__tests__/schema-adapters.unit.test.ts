@@ -10,16 +10,51 @@ type TestPayload = {
   id: number
 }
 
+const ZOD_SCHEMA_WITH_META = z.object({
+  id: z.number(),
+}).meta({
+  id: "test-payload-id",
+  schemaVersion: "1",
+})
+
+const ZOD_SCHEMA_PLAIN = z.object({
+  id: z.number(),
+})
+
+const AJV_SCHEMA_WITH_META = {
+  $id: "test-payload-id",
+  title: "test-payload-title",
+  type: "object",
+  properties: {
+    id: { type: "number" },
+  },
+  required: ["id"],
+  additionalProperties: false,
+  "x-schema-version": "1",
+} as const
+
+const AJV_SCHEMA_PLAIN = {
+  type: "object",
+  properties: {
+    id: { type: "number" },
+  },
+  required: ["id"],
+  additionalProperties: false,
+} as const
+
+const createAjvWithSchemaVersionKeyword = () => {
+  const ajv = new Ajv()
+  ajv.addKeyword({
+    keyword: "x-schema-version",
+    schemaType: "string",
+  })
+
+  return ajv
+}
+
 describe("schema adapters", () => {
   it("should derive schema metadata from zod schema", () => {
-    const schema = z.object({
-      id: z.number(),
-    }).meta({
-      id: "test-payload-id",
-      schemaVersion: "1",
-    })
-
-    const codec = createZodCodec(schema)
+    const codec = createZodCodec(ZOD_SCHEMA_WITH_META)
 
     expect(codec.schemaMeta).toEqual({
       provider: "zod",
@@ -34,14 +69,7 @@ describe("schema adapters", () => {
   })
 
   it("should allow overriding derived zod metadata via options", () => {
-    const schema = z.object({
-      id: z.number(),
-    }).meta({
-      id: "test-payload-id",
-      schemaVersion: "1",
-    })
-
-    const codec = createZodCodec(schema, {
+    const codec = createZodCodec(ZOD_SCHEMA_WITH_META, {
       schemaMeta: {
         schemaName: "override-name",
       },
@@ -56,38 +84,18 @@ describe("schema adapters", () => {
   })
 
   it("should throw deterministic validation error for invalid zod payload", () => {
-    const schema = z.object({
-      id: z.number(),
-    })
-
-    const codec = createZodCodec(schema)
+    const codec = createZodCodec(ZOD_SCHEMA_PLAIN)
 
     expect(() => codec.encode({ id: "invalid" } as unknown as TestPayload)).toThrow(KTSchemaValidationError)
     expect(() => codec.encode({ id: "invalid" } as unknown as TestPayload)).toThrow("Zod validation failed during encode")
   })
 
   it("should encode/decode with ajv schema and derive metadata", () => {
-    const ajv = new Ajv()
-    ajv.addKeyword({
-      keyword: "x-schema-version",
-      schemaType: "string",
-    })
-
-    const schema = {
-      $id: "test-payload-id",
-      title: "test-payload-title",
-      type: "object",
-      properties: {
-        id: { type: "number" },
-      },
-      required: ["id"],
-      additionalProperties: false,
-      "x-schema-version": "1",
-    } as const
+    const ajv = createAjvWithSchemaVersionKeyword()
 
     const codec = createAjvCodecFromSchema<TestPayload>({
       ajv,
-      schema,
+      schema: AJV_SCHEMA_WITH_META,
     })
 
     expect(codec.schemaMeta).toEqual({
@@ -104,18 +112,10 @@ describe("schema adapters", () => {
 
   it("should throw deterministic validation error for invalid ajv payload", () => {
     const ajv = new Ajv()
-    const schema = {
-      type: "object",
-      properties: {
-        id: { type: "number" },
-      },
-      required: ["id"],
-      additionalProperties: false,
-    } as const
 
     const codec = createAjvCodecFromSchema<TestPayload>({
       ajv,
-      schema,
+      schema: AJV_SCHEMA_PLAIN,
     })
 
     expect(() => codec.decode(JSON.stringify({ id: "bad" }))).toThrow(KTSchemaValidationError)

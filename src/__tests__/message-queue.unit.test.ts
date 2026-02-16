@@ -29,6 +29,42 @@ const kafkaProducerSendSingleMessageMock = jest.spyOn(KTKafkaProducer.prototype,
 // @ts-expect-error too much return arguments
 const kafkaProducerSendBatchMessagesMock = jest.spyOn(KTKafkaProducer.prototype, 'sendBatchMessages').mockImplementation(jest.fn);
 
+type RuntimeTopicPayload = {
+  fieldForPayload: number
+}
+
+type RuntimeBatchValue = {
+  value: number
+}
+
+const ZOD_RUNTIME_SCHEMA = z.object({
+  fieldForPayload: z.number(),
+})
+
+const AJV_RUNTIME_SCHEMA = {
+  type: "object",
+  properties: {
+    value: { type: "number" },
+  },
+  required: ["value"],
+  additionalProperties: false,
+} as const
+
+const createTopicSettings = (topicName: string, createDLQ = false) => ({
+  topic: KafkaTopicName.fromString(topicName),
+  numPartitions: 1,
+  batchMessageSizeToConsume: 10,
+  createDLQ,
+})
+
+const createTopicBatchSettings = (topicName: string, createDLQ = false) => ({
+  topic: KafkaTopicName.fromString(topicName),
+  numPartitions: 1,
+  batchMessageSizeToConsume: 10,
+  createDLQ,
+  configEntries: [],
+})
+
 describe("KTMessageQueue test", () => {
   beforeEach(() => {
     kafkaProducerInitMock.mockClear();
@@ -55,14 +91,7 @@ describe("KTMessageQueue test", () => {
   });
 
   it("should register handlers successfully", async () => {
-    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
-      fieldForPayload: number
-    }>({
-      topic: KafkaTopicName.fromString('test.example'),
-      numPartitions: 1,
-      batchMessageSizeToConsume: 10,
-      createDLQ: false,
-    })
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<RuntimeTopicPayload>(createTopicSettings("test.example"))
 
     const testExampleTopicHandler = KTHandler({
       topic: TestExampleTopic,
@@ -102,14 +131,7 @@ describe("KTMessageQueue test", () => {
   });
 
   it("should throw clear error when publishSingleMessage is called before initProducer", async () => {
-    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
-      fieldForPayload: number
-    }>({
-      topic: KafkaTopicName.fromString('test.example.publish.single'),
-      numPartitions: 1,
-      batchMessageSizeToConsume: 10,
-      createDLQ: false,
-    })
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<RuntimeTopicPayload>(createTopicSettings("test.example.publish.single"))
     const mq = new KTMessageQueue();
     const payload = TestExampleTopic({
       fieldForPayload: 1,
@@ -123,14 +145,7 @@ describe("KTMessageQueue test", () => {
   });
 
   it("should throw clear error when publishBatchMessages is called before initProducer", async () => {
-    const { BaseTopic: TestBatchTopic } = CreateKTTopic<{
-      fieldForPayload: number
-    }>({
-      topic: KafkaTopicName.fromString('test.example.publish.batch'),
-      numPartitions: 1,
-      batchMessageSizeToConsume: 10,
-      createDLQ: false,
-    })
+    const { BaseTopic: TestBatchTopic } = CreateKTTopic<RuntimeTopicPayload>(createTopicSettings("test.example.publish.batch"))
     const mq = new KTMessageQueue();
     const batchPayload = {
       topicName: TestBatchTopic.topicSettings.topic,
@@ -147,19 +162,10 @@ describe("KTMessageQueue test", () => {
 
   describe("publishTopicMessage runtime validation", () => {
     it("should publish valid zod payload via BaseTopic builder and publishSingleMessage", async () => {
-      const codec = createZodCodec(z.object({
-        fieldForPayload: z.number(),
-      }));
+      const codec = createZodCodec(ZOD_RUNTIME_SCHEMA);
       const encodeSpy = jest.spyOn(codec, "encode");
       const decodeSpy = jest.spyOn(codec, "decode");
-      const { BaseTopic } = CreateKTTopic<{
-        fieldForPayload: number
-      }>({
-        topic: KafkaTopicName.fromString("test.example.runtime.topic"),
-        numPartitions: 1,
-        batchMessageSizeToConsume: 10,
-        createDLQ: false,
-      }, codec);
+      const { BaseTopic } = CreateKTTopic<RuntimeTopicPayload>(createTopicSettings("test.example.runtime.topic"), codec);
 
       const mq = new KTMessageQueue();
 
@@ -195,18 +201,9 @@ describe("KTMessageQueue test", () => {
     });
 
     it("should reject invalid zod payload in BaseTopic builder before publishSingleMessage", () => {
-      const codec = createZodCodec(z.object({
-        fieldForPayload: z.number(),
-      }));
+      const codec = createZodCodec(ZOD_RUNTIME_SCHEMA);
       const encodeSpy = jest.spyOn(codec, "encode");
-      const { BaseTopic } = CreateKTTopic<{
-        fieldForPayload: number
-      }>({
-        topic: KafkaTopicName.fromString("test.example.runtime.topic.invalid"),
-        numPartitions: 1,
-        batchMessageSizeToConsume: 10,
-        createDLQ: false,
-      }, codec);
+      const { BaseTopic } = CreateKTTopic<RuntimeTopicPayload>(createTopicSettings("test.example.runtime.topic.invalid"), codec);
 
       expect(() => BaseTopic({
         fieldForPayload: "bad",
@@ -222,16 +219,9 @@ describe("KTMessageQueue test", () => {
   describe("publishTopicBatch runtime validation", () => {
     it("should publish valid ajv payload via BaseTopicBatch builder and publishBatchMessages", async () => {
       const ajv = new Ajv();
-      const codec = createAjvCodecFromSchema<{ value: number }>({
+      const codec = createAjvCodecFromSchema<RuntimeBatchValue>({
         ajv,
-        schema: {
-          type: "object",
-          properties: {
-            value: { type: "number" },
-          },
-          required: ["value"],
-          additionalProperties: false,
-        },
+        schema: AJV_RUNTIME_SCHEMA,
       });
       const encodeSpy = jest.spyOn(codec, "encode");
       const decodeSpy = jest.spyOn(codec, "decode");
@@ -240,13 +230,7 @@ describe("KTMessageQueue test", () => {
           value: number
         },
         key: KafkaMessageKey
-      }>>({
-        topic: KafkaTopicName.fromString("test.example.runtime.batch"),
-        numPartitions: 1,
-        batchMessageSizeToConsume: 10,
-        createDLQ: false,
-        configEntries: [],
-      }, codec);
+      }>>(createTopicBatchSettings("test.example.runtime.batch"), codec);
       const mq = new KTMessageQueue();
 
       await mq.initProducer({
@@ -280,16 +264,9 @@ describe("KTMessageQueue test", () => {
 
     it("should reject invalid ajv payload in BaseTopicBatch builder before publishBatchMessages", () => {
       const ajv = new Ajv();
-      const codec = createAjvCodecFromSchema<{ value: number }>({
+      const codec = createAjvCodecFromSchema<RuntimeBatchValue>({
         ajv,
-        schema: {
-          type: "object",
-          properties: {
-            value: { type: "number" },
-          },
-          required: ["value"],
-          additionalProperties: false,
-        },
+        schema: AJV_RUNTIME_SCHEMA,
       });
       const encodeSpy = jest.spyOn(codec, "encode");
       const { BaseTopic } = CreateKTTopicBatch<Array<{
@@ -297,13 +274,7 @@ describe("KTMessageQueue test", () => {
           value: number
         },
         key: KafkaMessageKey
-      }>>({
-        topic: KafkaTopicName.fromString("test.example.runtime.batch.invalid"),
-        numPartitions: 1,
-        batchMessageSizeToConsume: 10,
-        createDLQ: false,
-        configEntries: [],
-      }, codec);
+      }>>(createTopicBatchSettings("test.example.runtime.batch.invalid"), codec);
 
       expect(() => BaseTopic([{
         value: {
@@ -317,14 +288,7 @@ describe("KTMessageQueue test", () => {
   });
 
   it("should throw clear error when initConsumer is called with DLQ-enabled handler", async () => {
-    const { BaseTopic: DLQTopic } = CreateKTTopic<{
-      fieldForPayload: number
-    }>({
-      topic: KafkaTopicName.fromString('test.example.consumer.dlq'),
-      numPartitions: 1,
-      batchMessageSizeToConsume: 10,
-      createDLQ: true,
-    })
+    const { BaseTopic: DLQTopic } = CreateKTTopic<RuntimeTopicPayload>(createTopicSettings("test.example.consumer.dlq", true))
 
     const mq = new KTMessageQueue();
     const dlqHandler = KTHandler({
@@ -349,14 +313,7 @@ describe("KTMessageQueue test", () => {
   });
 
   it("should allow initConsumer with DLQ-enabled handler when producer is initialized", async () => {
-    const { BaseTopic: DLQTopic } = CreateKTTopic<{
-      fieldForPayload: number
-    }>({
-      topic: KafkaTopicName.fromString('test.example.consumer.dlq.allowed'),
-      numPartitions: 1,
-      batchMessageSizeToConsume: 10,
-      createDLQ: true,
-    })
+    const { BaseTopic: DLQTopic } = CreateKTTopic<RuntimeTopicPayload>(createTopicSettings("test.example.consumer.dlq.allowed", true))
 
     const mq = new KTMessageQueue();
     const dlqHandler = KTHandler({
