@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { KTHandler } from "../kafka/consumer-handler.ts";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
 import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
-import { KTTopic } from "../kafka/topic.ts";
+import { CreateKTTopic } from "../kafka/topic.ts";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
 import { KTMessageQueue } from "../message-queue/index.ts";
 
@@ -41,7 +41,7 @@ describe("Consumer handlers test", () => {
       pureConfig: {},
     });
 
-    const TestExampleTopic = KTTopic<{
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
       fieldForPayload: number
     }>({
       topic: KafkaTopicName.fromString('test.example.1'),
@@ -70,7 +70,7 @@ describe("Consumer handlers test", () => {
   it("should consume data and publish from handler successful", async () => {
     const mq = new KTMessageQueue();
 
-    const TestExampleTopic = KTTopic<{
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
       fieldForPayload: number
     }>({
       topic: KafkaTopicName.fromString('test.example.2'),
@@ -139,7 +139,7 @@ describe("Consumer handlers test", () => {
   it("should use custom encoder and decoder properly", async () => {
     const mq = new KTMessageQueue();
 
-    const TestExampleTopic = KTTopic<{
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
       fieldForPayload: number
     }>({
       topic: KafkaTopicName.fromString('test.example.2'),

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { KTHandler } from "../kafka/consumer-handler.ts";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.ts";
 import { KTKafkaProducer } from "../kafka/kafka-producer.ts";
-import { KTTopic } from "../kafka/topic.ts";
+import { CreateKTTopic } from "../kafka/topic.ts";
 import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.ts";
 import { KTMessageQueue } from "../message-queue/index.ts";
 
@@ -45,7 +45,7 @@ describe("KTMessageQueue test", () => {
   });
 
   it("should register handlers successfully", async () => {
-    const TestExampleTopic = KTTopic<{
+    const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
       fieldForPayload: number
     }>({
       topic: KafkaTopicName.fromString('test.example'),
