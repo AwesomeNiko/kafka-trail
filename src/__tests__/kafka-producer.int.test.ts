@@ -25,7 +25,7 @@ describe("Kafka producer integration", () => {
       kafkaSettings: {
         brokerUrls: [brokerUrl],
         clientId: producerClientId,
-        connectionTimeout: 30_000,
+        connectionTimeout: 10_000,
       },
       pureConfig: {},
       logger: pino(),
@@ -49,7 +49,7 @@ describe("Kafka producer integration", () => {
     } finally {
       await kafkaProducer.destroy();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 30_000));
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
 
   it("should reject partition decrease for existing topic", async () => {
     const { brokerUrl } = getIntTestConfig();
@@ -61,7 +61,7 @@ describe("Kafka producer integration", () => {
       kafkaSettings: {
         brokerUrls: [brokerUrl],
         clientId: producerClientId,
-        connectionTimeout: 30_000,
+        connectionTimeout: 10_000,
       },
       pureConfig: {},
       logger: pino(),
@@ -84,5 +84,50 @@ describe("Kafka producer integration", () => {
     } finally {
       await kafkaProducer.destroy();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 30_000));
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+
+  it("should send batch messages", async () => {
+    const { brokerUrl } = getIntTestConfig();
+    const suffix = randomUUID();
+    const topicName = KafkaTopicName.fromString(`test.int.producer.batch.${suffix}`);
+    const producerClientId = KafkaClientId.fromString(`producer-${suffix}`);
+
+    const kafkaProducer = new KTKafkaProducer({
+      kafkaSettings: {
+        brokerUrls: [brokerUrl],
+        clientId: producerClientId,
+        connectionTimeout: 10_000,
+      },
+      pureConfig: {},
+      logger: pino(),
+    });
+
+    try {
+      await kafkaProducer.init();
+
+      await kafkaProducer.createTopic({
+        topic: topicName,
+        numPartitions: 2,
+        configEntries: [],
+      });
+
+      await kafkaProducer.sendBatchMessages({
+        topicName,
+        messages: [
+          {
+            key: KafkaMessageKey.fromString("1"),
+            value: JSON.stringify({ value: 1 }),
+            headers: {},
+          },
+          {
+            key: KafkaMessageKey.fromString("2"),
+            value: JSON.stringify({ value: 2 }),
+            headers: {},
+          },
+        ],
+      });
+    } finally {
+      await kafkaProducer.destroy();
+    }
+  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
 });
