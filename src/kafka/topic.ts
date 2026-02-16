@@ -36,7 +36,7 @@ export type KTTopicEvent<Payload extends object> = {
 export type KTPayloadFromTopic<T> = T extends KTTopicEvent<infer P> ? P : never;
 export type DLQPayload<T> = {
   originalTopic: KafkaTopicName;
-  oritinalPartition: number;
+  originalPartition: number;
   originalOffset: string | undefined;
   key: KafkaMessageKey | null;
   value: T;

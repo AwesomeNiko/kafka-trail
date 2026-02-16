@@ -58,6 +58,7 @@ await messageQueue.initProducer({
     clientId: KafkaClientId.fromString('hostname'),
     connectionTimeout: 30_000,
   },
+  pureConfig: {},
 })
 
 // Create topic fn
@@ -67,6 +68,7 @@ const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
   batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  createDLQ: false,
 })
 
 // Create or use topic
@@ -79,6 +81,7 @@ const payload = TestExampleTopic({
   fieldForPayload: 1,
 }, {
   messageKey: KafkaMessageKey.NULL, //If you don't want to specify message key
+  meta: {},
 })
 
 await messageQueue.publishSingleMessage(payload)
@@ -86,7 +89,7 @@ await messageQueue.publishSingleMessage(payload)
 
 ### If you want consumer only:
 ```typescript
-import type  { pino } from "pino";
+import type pino from "pino";
 
 import { 
   KTHandler, 
@@ -129,6 +132,7 @@ export const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
   batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  createDLQ: false,
 })
 
 // Create topic handler
@@ -167,6 +171,7 @@ await messageQueue.initConsumer({
     consumerGroupId: 'consumer-group-id', 
     batchConsuming: true // default false
   },
+  pureConfig: {},
 })
 ```
 
@@ -194,6 +199,7 @@ const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
   batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  createDLQ: false,
 })
 
 // Required, because inside handler we are going to publish data
@@ -203,6 +209,7 @@ await messageQueue.initProducer({
     clientId: KafkaClientId.fromString('hostname'),
     connectionTimeout: 30_000,
   },
+  pureConfig: {},
 })
 
 // Create or use topic
@@ -226,6 +233,7 @@ const testExampleTopicHandler = KTHandler({
       fieldForPayload: data.fieldForPayload + 1,
     }, {
       messageKey: KafkaMessageKey.NULL,
+      meta: {},
     })
 
     await publisher.publishSingleMessage(newPayload)
@@ -245,12 +253,13 @@ await messageQueue.initConsumer({
     consumerGroupId: 'consumer-group-id', 
     batchConsuming: true // default false
   },
+  pureConfig: {},
 })
 ```
 
 ### Destroying all will help you perform graceful shutdown
 ```javascript
-const messageQueue = new MessageQueue();
+const messageQueue = new KTMessageQueue();
 
 process.on("SIGINT", async () => {
   await messageQueue.destroyAll()
@@ -269,7 +278,7 @@ You can override it, by passing via `KTKafkaSettings` type. Be careful - produce
 [Ref docs](https://kafka.js.org/docs/1.12.0/producing#compression). Example:
 
 ```typescript
-import { KTMessageQueue } from "@awesomeniko/kafka-trail";
+import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
 import { CompressionTypes } from "kafkajs";
 import lz4 from "lz4";
 
@@ -296,6 +305,7 @@ await messageQueue.initProducer({
       },
     },
   },
+  pureConfig: {},
 })
 ```
 
@@ -312,6 +322,7 @@ const { BaseTopic: TestExampleTopic } = CreateKTTopic<MyModel>({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
   batchMessageSizeToConsume: 10, // Works is batchConsuming = true
+  createDLQ: false,
 }, {
   encode: (data) => {
     return JSON.stringify(data)
@@ -335,6 +346,7 @@ const { BaseTopic: TestExampleTopic } = CreateKTTopicBatch({
   topic: KafkaTopicName.fromString('test.example'),
   numPartitions: 1,
   batchMessageSizeToConsume: 10,
+  createDLQ: false,
 })
 
 // Create or use topic
@@ -342,7 +354,7 @@ await messageQueue.initTopics([
   TestExampleTopic,
 ])
 
-// Use publishSingleMessage method to publish message
+// Use publishBatchMessages method to publish message
 const payload = TestExampleTopic([{
   value: {
     test: 1,
@@ -368,6 +380,8 @@ await messageQueue.publishBatchMessages(payload)
 
 ### Dead Letter Queue (DLQ)
 Automatically route failed messages to DLQ topics for later analysis and reprocessing.
+
+`initProducer` must be called before `initConsumer` when at least one registered handler uses `createDLQ: true`, otherwise `ProducerInitRequiredForDLQError` is thrown.
 
 ```typescript
 // DLQ topics are automatically created with 'dlq.' prefix
@@ -398,6 +412,11 @@ await messageQueue.initTopics([
   failedAt: 1703123456789
 }
 ```
+
+### Deprecated topic creators
+`KTTopic(...)` and `KTTopicBatch(...)` are kept only for backward compatibility and throw runtime errors:
+- `Deprecated. use CreateKTTopic(...)`
+- `Deprecated. use CreateKTTopicBatch(...)`
 
 ## Contributing
 Contributions are welcome! If you’d like to improve this library:
