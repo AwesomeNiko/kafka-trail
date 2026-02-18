@@ -152,6 +152,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      NODE_AUTH_TOKEN: ""
+      NPM_TOKEN: ""
 
     steps:
       - name: Checkout repository
@@ -202,11 +205,9 @@ jobs:
 
       - name: Enforce OIDC trusted publishing mode
         if: steps.release_check.outputs.is_release == 'true'
-        env:
-          NODE_AUTH_TOKEN: ""
-          NPM_TOKEN: ""
         run: |
           rm -f "$HOME/.npmrc"
+          rm -f "$NPM_CONFIG_USERCONFIG"
           npm config delete //registry.npmjs.org/:_authToken || true
 
       - name: Check OIDC availability
@@ -220,6 +221,5 @@ jobs:
       - name: Publish to npm
         if: steps.release_check.outputs.is_release == 'true'
         env:
-          NODE_AUTH_TOKEN: ""
-          NPM_TOKEN: ""
+          NPM_CONFIG_USERCONFIG: /dev/null
         run: npm publish --provenance --access public
