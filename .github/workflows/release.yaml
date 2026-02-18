@@ -181,6 +181,18 @@ jobs:
         if: steps.release_check.outputs.is_release == 'true'
         run: yarn build
 
+      - name: Enforce OIDC trusted publishing mode
+        if: steps.release_check.outputs.is_release == 'true'
+        env:
+          NODE_AUTH_TOKEN: ""
+          NPM_TOKEN: ""
+        run: |
+          rm -f "$HOME/.npmrc"
+          npm config delete //registry.npmjs.org/:_authToken || true
+
       - name: Publish to npm
         if: steps.release_check.outputs.is_release == 'true'
+        env:
+          NODE_AUTH_TOKEN: ""
+          NPM_TOKEN: ""
         run: npm publish --provenance --access public
