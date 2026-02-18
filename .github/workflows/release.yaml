@@ -172,7 +172,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: yarn
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         if: steps.release_check.outputs.is_release == 'true'
@@ -184,4 +183,4 @@ jobs:
 
       - name: Publish to npm
         if: steps.release_check.outputs.is_release == 'true'
-        run: npm publish --provenance
+        run: npm publish --provenance --access public
