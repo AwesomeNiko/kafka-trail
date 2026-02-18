@@ -73,6 +73,46 @@ jobs:
           NEW_VERSION=$(node -p "require('./package.json').version")
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Configure git signing for release commit
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          RELEASE_BOT_GIT_NAME: ${{ secrets.RELEASE_BOT_GIT_NAME }}
+          RELEASE_BOT_GIT_EMAIL: ${{ secrets.RELEASE_BOT_GIT_EMAIL }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "Missing required secret: GPG_PRIVATE_KEY"
+            exit 1
+          fi
+
+          if [ -z "$RELEASE_BOT_GIT_NAME" ] || [ -z "$RELEASE_BOT_GIT_EMAIL" ]; then
+            echo "Missing required secrets: RELEASE_BOT_GIT_NAME and/or RELEASE_BOT_GIT_EMAIL"
+            exit 1
+          fi
+
+          GNUPGHOME_DIR=$(mktemp -d)
+          chmod 700 "$GNUPGHOME_DIR"
+          echo "GNUPGHOME=$GNUPGHOME_DIR" >> "$GITHUB_ENV"
+          export GNUPGHOME="$GNUPGHOME_DIR"
+
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          GPG_KEY_FINGERPRINT=$(gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')
+
+          if [ -z "$GPG_KEY_FINGERPRINT" ]; then
+            echo "Unable to determine GPG key fingerprint"
+            exit 1
+          fi
+
+          if [ -n "$GPG_PASSPHRASE" ]; then
+            printf 'pinentry-mode loopback\n' >> "$GNUPGHOME/gpg.conf"
+            printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --local-user "$GPG_KEY_FINGERPRINT" --sign --output /dev/null /dev/null
+          fi
+
+          git config --global user.name "$RELEASE_BOT_GIT_NAME"
+          git config --global user.email "$RELEASE_BOT_GIT_EMAIL"
+          git config --global user.signingkey "$GPG_KEY_FINGERPRINT"
+          git config --global commit.gpgsign true
+
       - name: Create pull request
         uses: peter-evans/create-pull-request@v6
         with:
