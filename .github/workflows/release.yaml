@@ -193,6 +193,13 @@ jobs:
           registry-url: https://registry.npmjs.org
           token: ""
 
+      - name: Ensure npm supports trusted publishing
+        if: steps.release_check.outputs.is_release == 'true'
+        run: |
+          npm --version
+          npm i -g npm@^11.5.1
+          npm --version
+
       - name: Install dependencies
         if: steps.release_check.outputs.is_release == 'true'
         run: yarn install --frozen-lockfile
