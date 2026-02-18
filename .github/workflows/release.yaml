@@ -191,6 +191,7 @@ jobs:
           node-version-file: .nvmrc
           cache: yarn
           registry-url: https://registry.npmjs.org
+          token: ""
 
       - name: Install dependencies
         if: steps.release_check.outputs.is_release == 'true'
