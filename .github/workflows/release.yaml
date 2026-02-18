@@ -159,15 +159,6 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Validate publish_only branch
-        if: github.event_name == 'workflow_dispatch' && inputs.workflow_action == 'publish_only'
-        run: |
-          if [ "${{ github.ref_name }}" != "${{ github.event.repository.default_branch }}" ]; then
-            echo "publish_only must run from default branch: ${{ github.event.repository.default_branch }}"
-            echo "Current ref: ${{ github.ref_name }}"
-            exit 1
-          fi
-
       - name: Detect release merge
         id: release_check
         run: |
