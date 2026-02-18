@@ -118,6 +118,8 @@ jobs:
         with:
           branch: release/v${{ steps.version.outputs.new_version }}
           base: ${{ inputs.base_branch }}
+          author: ${{ secrets.RELEASE_BOT_GIT_NAME }} <${{ secrets.RELEASE_BOT_GIT_EMAIL }}>
+          committer: ${{ secrets.RELEASE_BOT_GIT_NAME }} <${{ secrets.RELEASE_BOT_GIT_EMAIL }}>
           commit-message: "chore(release): v${{ steps.version.outputs.new_version }}"
           title: "chore(release): v${{ steps.version.outputs.new_version }}"
           body: |
