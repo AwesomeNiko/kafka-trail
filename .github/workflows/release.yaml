@@ -199,6 +199,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: yarn
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         if: steps.release_check.outputs.is_release == 'true'
@@ -216,6 +217,14 @@ jobs:
         run: |
           rm -f "$HOME/.npmrc"
           npm config delete //registry.npmjs.org/:_authToken || true
+
+      - name: Check OIDC availability
+        if: steps.release_check.outputs.is_release == 'true'
+        run: |
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            echo "OIDC token request variables are missing in this job"
+            exit 1
+          fi
 
       - name: Publish to npm
         if: steps.release_check.outputs.is_release == 'true'
