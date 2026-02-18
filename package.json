@@ -69,7 +69,10 @@
     "zod": "^4.3.6"
   },
   "resolutions": {
-    "prettier": "^3.2.4"
+    "prettier": "^3.2.4",
+    "**/glob": "11.1.0",
+    "**/fast-xml-parser": "5.3.6",
+    "**/js-yaml": "4.1.1"
   },
   "files": [
     "dist",
