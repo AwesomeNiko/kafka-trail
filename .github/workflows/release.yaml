@@ -152,9 +152,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      NODE_AUTH_TOKEN: ""
-      NPM_TOKEN: ""
 
     steps:
       - name: Checkout repository
@@ -220,6 +217,8 @@ jobs:
 
       - name: Publish to npm
         if: steps.release_check.outputs.is_release == 'true'
-        env:
-          NPM_CONFIG_USERCONFIG: /dev/null
-        run: npm publish --provenance --access public
+        run: |
+          unset NODE_AUTH_TOKEN
+          unset NPM_TOKEN
+          export NPM_CONFIG_USERCONFIG=/dev/null
+          npm publish --provenance --access public
