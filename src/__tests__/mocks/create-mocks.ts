@@ -1,6 +1,7 @@
 import { jest } from "@jest/globals";
 import type { Admin,
   AdminConfig, Consumer, ConsumerRunConfig,
+  ConsumerSubscribeTopics,
   ITopicConfig,
   ITopicMetadata,
   ITopicPartitionConfig,
@@ -33,7 +34,7 @@ const createKafkaMocks = ({
   });
   const createPartitionsFn = jest.fn<(options: {validateOnly?: boolean, timeout?: number, topicPartitions: ITopicPartitionConfig[]}) => Promise<boolean>>();
   const createTopicsFn = jest.fn<(options: {validateOnly?: boolean, waitForLeaders?: boolean, timeout?: number, topics: ITopicConfig[]}) => Promise<boolean>>();
-  const consumerSubscribe = jest.fn<() => Promise<void>>();
+  const consumerSubscribe = jest.fn<(subscription: ConsumerSubscribeTopics) => Promise<void>>();
   const sendMsgFn = jest.fn<(record: ProducerRecord) => Promise<RecordMetadata[]>>();
 
   // @ts-expect-error too much return arguments

@@ -126,7 +126,7 @@ describe("KTMessageQueue test", () => {
 
     expect(kafkaConsumerInitMock).toHaveBeenCalledTimes(1);
     expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledTimes(1);
-    expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledWith(['test.example']);
+    expect(kafkaConsumerSubscribeTopicMock).toHaveBeenCalledWith([KafkaTopicName.fromString('test.example')]);
     clearAll()
   });
 
@@ -191,9 +191,9 @@ describe("KTMessageQueue test", () => {
       expect(decodeSpy).toHaveBeenCalledWith(payload.message);
       expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledTimes(1);
       expect(kafkaProducerSendSingleMessageMock).toHaveBeenCalledWith({
-        topicName: "test.example.runtime.topic",
+        topicName: KafkaTopicName.fromString("test.example.runtime.topic"),
         value: JSON.stringify({ fieldForPayload: 1 }),
-        messageKey: "runtime-topic-key",
+        messageKey: KafkaMessageKey.fromString("runtime-topic-key"),
         headers: expect.objectContaining({
           traceId: expect.any(String),
         }),
@@ -253,9 +253,9 @@ describe("KTMessageQueue test", () => {
       expect(decodeSpy).toHaveBeenCalledWith(payload.messages[0]?.value || "{}");
       expect(kafkaProducerSendBatchMessagesMock).toHaveBeenCalledTimes(1);
       expect(kafkaProducerSendBatchMessagesMock).toHaveBeenCalledWith({
-        topicName: "test.example.runtime.batch",
+        topicName: KafkaTopicName.fromString("test.example.runtime.batch"),
         messages: [{
-          key: "runtime-batch-key",
+          key: KafkaMessageKey.fromString("runtime-batch-key"),
           value: JSON.stringify({ value: 10 }),
           headers: {},
         }],
