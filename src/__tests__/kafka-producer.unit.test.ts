@@ -71,7 +71,7 @@ describe("KafkaProducer test", () => {
       topic: TOPIC_NAME,
       compression: CompressionTypes.LZ4,
       messages: [{
-        key: MESSAGE_KEY?.toString(),
+        key: MESSAGE_KEY,
         value: '1',
         headers: {},
       }],
@@ -109,7 +109,7 @@ describe("KafkaProducer test", () => {
       topic: TOPIC_NAME,
       compression: CompressionTypes.GZIP,
       messages: [{
-        key: MESSAGE_KEY?.toString(),
+        key: MESSAGE_KEY,
         value: "1",
         headers: {},
       }],
