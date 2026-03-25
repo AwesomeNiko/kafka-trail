@@ -37,6 +37,7 @@ type KTRunHandlerWithTracingParams<Ctx extends object> = {
   partition: number,
   lastOffset: string | undefined,
   batchedValues: object[],
+  payloadContentLength: number,
   kafkaTopicParams: KTHandlerKafkaParams,
   failedKey: KafkaMessageKey,
 }
@@ -137,6 +138,7 @@ class KTMessageQueue<Ctx extends object> {
       partition: params.partition,
       lastOffset: params.lastOffset,
       batchedValues: params.batchedValues,
+      payloadContentLength: params.payloadContentLength,
       opts: {
         addPayloadToTrace: this.#addPayloadToTrace,
       },
@@ -170,6 +172,18 @@ class KTMessageQueue<Ctx extends object> {
         handlerSpan.end()
       }
     })
+  }
+
+  #getRawPayloadContentLength(value: Buffer | string | null | undefined): number {
+    if (!value) {
+      return 0
+    }
+
+    if (Buffer.isBuffer(value)) {
+      return value.byteLength
+    }
+
+    return Buffer.byteLength(value, "utf8")
   }
 
   async initProducer(params: KafkaBrokerConfig) {
@@ -251,8 +265,10 @@ class KTMessageQueue<Ctx extends object> {
             if (handler) {
               const batchedValues: object[] = [];
               let lastOffset: string | undefined = undefined
+              let payloadContentLength = 0
 
               if (message.value) {
+                payloadContentLength = this.#getRawPayloadContentLength(message.value)
                 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                 const decodedMessage: object = handler.topic.decode(message.value);
                 batchedValues.push(decodedMessage);
@@ -265,6 +281,7 @@ class KTMessageQueue<Ctx extends object> {
                 partition,
                 lastOffset,
                 batchedValues,
+                payloadContentLength,
                 kafkaTopicParams: {
                   partition,
                   lastOffset,
@@ -334,10 +351,12 @@ class KTMessageQueue<Ctx extends object> {
               try {
                 const batchedValues: object[] = [];
                 let lastOffset: string | undefined = undefined
+                let payloadContentLength = 0
 
                 for (const message of messages) {
                   if (batchedValues.length < handler.topic.topicSettings.batchMessageSizeToConsume) {
                     if (message.value) {
+                      payloadContentLength += this.#getRawPayloadContentLength(message.value)
                       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                       const decodedMessage: object = handler.topic.decode(message.value);
                       batchedValues.push(decodedMessage);
@@ -354,6 +373,7 @@ class KTMessageQueue<Ctx extends object> {
                   partition,
                   lastOffset,
                   batchedValues,
+                  payloadContentLength,
                   kafkaTopicParams: {
                     partition,
                     lastOffset,

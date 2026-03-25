@@ -3,6 +3,7 @@ type CreateHandlerTraceAttributes = {
   partition: number,
   lastOffset: string | undefined,
   batchedValues: object[],
+  payloadContentLength: number,
   opts: {
     addPayloadToTrace: boolean,
   },
@@ -13,6 +14,7 @@ export const createHandlerTraceAttributes = (params: CreateHandlerTraceAttribute
     'messaging.system': 'kafka',
     'messaging.destination': params.topicName,
     'messaging.kafka.partition': params.partition,
+    'messaging.kafka.payload.content_length': params.payloadContentLength,
   }
 
   if (params.lastOffset) {
