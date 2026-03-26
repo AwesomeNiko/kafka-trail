@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-
 import ConfluentKafka from "@confluentinc/kafka-javascript";
 import type pino from "pino";
 
@@ -32,59 +30,9 @@ export type KafkaLogger = {
 
 export type KafkaWithLogger<T extends KafkaBrokerConfig> = T & KafkaLogger
 
-const { KafkaJS, AdminClient, CODES } = ConfluentKafka
-const require = createRequire(import.meta.url)
-const { kafkaJSToRdKafkaConfig } = require("@confluentinc/kafka-javascript/lib/kafkajs/_common.js") as {
-  kafkaJSToRdKafkaConfig: (config: Record<string, unknown>) => Record<string, unknown>
-}
+const { KafkaJS } = ConfluentKafka
 
 type ConfluentCommonConstructorConfig = NonNullable<ConstructorParameters<typeof KafkaJS.Kafka>[0]>
-
-type CreateKafkaClientFn = (params: KafkaBrokerConfig) => InstanceType<typeof KafkaJS.Kafka>
-type CreateLowLevelAdminClientFn = (params: KafkaBrokerConfig) => unknown
-type CreateLowLevelAdminClientFromProducerFn = (producer: { _getInternalClient: () => unknown }) => unknown
-
-let createKafkaClientImpl: CreateKafkaClientFn = (params) => {
-  return new KafkaJS.Kafka(toConfluentCommonConfig(params))
-}
-
-let createLowLevelAdminClientImpl: CreateLowLevelAdminClientFn = (params) => {
-  const adminConfig = toConfluentAdminClientConfig(params)
-
-  return AdminClient.create(adminConfig)
-}
-
-let createLowLevelAdminClientFromProducerImpl: CreateLowLevelAdminClientFromProducerFn = (producer) => {
-  return AdminClient.createFrom(producer._getInternalClient() as never)
-}
-
-const setKafkaClientFactoryForTests = (fn: CreateKafkaClientFn) => {
-  createKafkaClientImpl = fn
-}
-
-const setLowLevelAdminFactoryForTests = (fn: CreateLowLevelAdminClientFn) => {
-  createLowLevelAdminClientImpl = fn
-}
-
-const setLowLevelAdminFromProducerFactoryForTests = (fn: CreateLowLevelAdminClientFromProducerFn) => {
-  createLowLevelAdminClientFromProducerImpl = fn
-}
-
-const resetKafkaClientFactoryForTests = () => {
-  createKafkaClientImpl = (params) => {
-    return new KafkaJS.Kafka(toConfluentCommonConfig(params))
-  }
-
-  createLowLevelAdminClientImpl = (params) => {
-    const adminConfig = toConfluentAdminClientConfig(params)
-
-    return AdminClient.create(adminConfig)
-  }
-
-  createLowLevelAdminClientFromProducerImpl = (producer) => {
-    return AdminClient.createFrom(producer._getInternalClient() as never)
-  }
-}
 
 const toConfluentCommonConfig = (params: KafkaBrokerConfig): ConfluentCommonConstructorConfig => {
   if (params.pureConfig.ssl && typeof params.pureConfig.ssl !== "boolean") {
@@ -134,36 +82,11 @@ const toConfluentCommonConfig = (params: KafkaBrokerConfig): ConfluentCommonCons
   }
 }
 
-const toConfluentAdminClientConfig = (params: KafkaBrokerConfig) => {
-  const commonConfig = toConfluentCommonConfig(params)
-
-  return kafkaJSToRdKafkaConfig(commonConfig as unknown as Record<string, unknown>)
-}
-
-const createLowLevelAdminClient = (params: KafkaBrokerConfig) => {
-  return createLowLevelAdminClientImpl(params)
-}
-
-const createLowLevelAdminClientFromProducer = (producer: { _getInternalClient: () => unknown }) => {
-  return createLowLevelAdminClientFromProducerImpl(producer)
-}
-
-const isUnknownTopicError = (err: unknown) => {
-  if (!(err instanceof Error)) {
-    return false
-  }
-
-  const errorCode = "code" in err ? err.code : undefined
-
-  return errorCode === CODES.ERRORS.ERR__UNKNOWN_TOPIC
-    || errorCode === CODES.ERRORS.ERR_UNKNOWN_TOPIC_OR_PART
-}
-
 class KTKafkaBroker {
   _kafka: InstanceType<typeof KafkaJS.Kafka>;
 
   constructor(params: KafkaBrokerConfig) {
-    this._kafka = createKafkaClientImpl(params);
+    this._kafka = new KafkaJS.Kafka(toConfluentCommonConfig(params));
   }
 
   encode(message: object) {
@@ -175,13 +98,7 @@ class KTKafkaBroker {
 }
 
 export {
-  createLowLevelAdminClient,
-  createLowLevelAdminClientFromProducer,
-  isUnknownTopicError,
-  KafkaJS,
   KTKafkaBroker,
-  resetKafkaClientFactoryForTests,
-  setKafkaClientFactoryForTests,
-  setLowLevelAdminFactoryForTests,
-  setLowLevelAdminFromProducerFactoryForTests,
+  KafkaJS,
+  toConfluentCommonConfig,
 };

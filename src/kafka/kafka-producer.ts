@@ -1,12 +1,21 @@
+import { createRequire } from "node:module";
+
+import ConfluentKafka from "@confluentinc/kafka-javascript";
 import type pino from "pino";
 
 import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.js";
 import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 import type { KafkaBrokerConfig, KafkaWithLogger } from "./kafka-broker.js";
-import { createLowLevelAdminClient, createLowLevelAdminClientFromProducer, KafkaJS, KTKafkaBroker, isUnknownTopicError } from "./kafka-broker.js";
+import { KafkaJS, KTKafkaBroker, toConfluentCommonConfig } from "./kafka-broker.js";
 import { KTCompressionTypes, type KTCustomPartitioner, type KTHeaders, type KTTopicConfig, type KTTopicMetadata } from "./kafka-types.js";
 import type { KTTopicBatchPayload } from "./topic-batch.js";
+
+const { AdminClient, CODES } = ConfluentKafka
+const require = createRequire(import.meta.url)
+const { kafkaJSToRdKafkaConfig } = require("@confluentinc/kafka-javascript/lib/kafkajs/_common.js") as {
+  kafkaJSToRdKafkaConfig: (config: Record<string, unknown>) => Record<string, unknown>
+}
 
 type ConfluentAdminLike = ReturnType<InstanceType<typeof KafkaJS.Kafka>["admin"]>
 type ConfluentLowLevelAdminClient = {
@@ -102,13 +111,18 @@ class KTKafkaProducer extends KTKafkaBroker {
     if (this.#adminDependsOnProducer) {
       await this.#producer.connect()
       await this.#admin.connect()
-      this.#lowLevelAdmin = createLowLevelAdminClientFromProducer(this.#producer) as ConfluentLowLevelAdminClient
+      this.#lowLevelAdmin = AdminClient.createFrom(
+        this.#producer._getInternalClient() as never,
+      ) as ConfluentLowLevelAdminClient
 
       return
     }
 
     await Promise.all([this.#admin.connect(), this.#producer.connect()]);
-    this.#lowLevelAdmin = createLowLevelAdminClient(this.#params) as ConfluentLowLevelAdminClient
+
+    const commonConfig = toConfluentCommonConfig(this.#params)
+    const adminConfig = kafkaJSToRdKafkaConfig(commonConfig as unknown as Record<string, unknown>)
+    this.#lowLevelAdmin = AdminClient.create(adminConfig) as ConfluentLowLevelAdminClient
   }
 
   async destroy() {
@@ -204,8 +218,12 @@ class KTKafkaProducer extends KTKafkaBroker {
 
       return metadata as { topics: KTTopicMetadata[] }
     } catch (err) {
-      if (isUnknownTopicError(err)) {
-        return { topics: [] }
+      if (err instanceof Error) {
+        const errorCode = "code" in err ? err.code : undefined
+
+        if (errorCode === CODES.ERRORS.ERR__UNKNOWN_TOPIC || errorCode === CODES.ERRORS.ERR_UNKNOWN_TOPIC_OR_PART) {
+          return { topics: [] }
+        }
       }
 
       throw err

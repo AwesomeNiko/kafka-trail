@@ -1,7 +1,9 @@
+import ConfluentKafka from "@confluentinc/kafka-javascript";
 import { jest } from "@jest/globals";
 
-import { resetKafkaClientFactoryForTests, setKafkaClientFactoryForTests, setLowLevelAdminFactoryForTests, setLowLevelAdminFromProducerFactoryForTests } from "../../kafka/kafka-broker.js";
 import type { KTConsumerRunConfig, KTTopicConfig, KTTopicMetadata } from "../../kafka/kafka-types.js";
+
+const { KafkaJS, AdminClient } = ConfluentKafka
 
 const createKafkaMocks = ({
   topicName = "test-topic-name",
@@ -105,29 +107,26 @@ const createKafkaMocks = ({
   const createProducerMock = jest.fn(() => producerMock);
   const createConsumerMock = jest.fn(() => consumerMock);
 
-  const createKafkaClientMock = jest.fn(() => ({
-    createAdmin: createAdminMock,
-    createProducer: createProducerMock,
-    createConsumer: createConsumerMock,
-    admin: createAdminMock,
-    producer: createProducerMock,
-    consumer: createConsumerMock,
-  }));
   const lowLevelAdminMock = {
     disconnect: kafkaLowLevelAdminDisconnectFn,
     createPartitions: kafkaLowLevelCreatePartitionsFn,
   }
 
-  setKafkaClientFactoryForTests(() => createKafkaClientMock() as never);
-  setLowLevelAdminFactoryForTests(() => lowLevelAdminMock);
-  setLowLevelAdminFromProducerFactoryForTests(() => lowLevelAdminMock);
+  const kafkaAdminSpy = jest.spyOn(KafkaJS.Kafka.prototype, "admin").mockImplementation(() => adminMock as never);
+  const kafkaProducerSpy = jest.spyOn(KafkaJS.Kafka.prototype, "producer").mockImplementation(() => producerMock as never);
+  const kafkaConsumerSpy = jest.spyOn(KafkaJS.Kafka.prototype, "consumer").mockImplementation(() => consumerMock as never);
+  const lowLevelAdminSpy = jest.spyOn(AdminClient, "create").mockImplementation(() => lowLevelAdminMock as never);
+  const lowLevelAdminFromProducerSpy = jest.spyOn(AdminClient, "createFrom").mockImplementation(() => lowLevelAdminMock as never);
 
   const clearAll = () => {
-    resetKafkaClientFactoryForTests()
-    createKafkaClientMock.mockClear()
     createAdminMock.mockClear()
     createProducerMock.mockClear()
     createConsumerMock.mockClear()
+    kafkaAdminSpy.mockClear()
+    kafkaProducerSpy.mockClear()
+    kafkaConsumerSpy.mockClear()
+    lowLevelAdminSpy.mockClear()
+    lowLevelAdminFromProducerSpy.mockClear()
   }
 
   return {
@@ -143,7 +142,6 @@ const createKafkaMocks = ({
     consumerSubscribe,
     consumerRun,
     sendMsgFn,
-    createKafkaClientMock,
     createAdminMock,
     createProducerMock,
     createConsumerMock,
