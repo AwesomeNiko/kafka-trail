@@ -2,7 +2,13 @@ import { EventEmitter } from "node:events";
 
 import { jest } from "@jest/globals";
 
-import * as kafkaBrokerModule from "../../kafka/kafka-broker.js";
+import { KTKafkaBroker } from "../../kafka/kafka-broker.js";
+
+type BrokerFactoryPrototype = {
+  createProducer: () => unknown
+  createConsumer: () => unknown
+  createAdminClient: () => unknown
+}
 
 const createKafkaMocks = ({
   topicName = "test-topic-name",
@@ -165,9 +171,10 @@ const createKafkaMocks = ({
     createTopic: kafkaLowLevelCreateTopicFn,
   }
 
-  const producerFactorySpy = jest.spyOn(kafkaBrokerModule.rdKafkaFactories, "createProducer").mockImplementation(() => producerMock as never);
-  const consumerFactorySpy = jest.spyOn(kafkaBrokerModule.rdKafkaFactories, "createConsumer").mockImplementation(() => consumerMock as never);
-  const adminFactorySpy = jest.spyOn(kafkaBrokerModule.rdKafkaFactories, "createAdminClient").mockImplementation(() => lowLevelAdminMock as never);
+  const brokerPrototype = KTKafkaBroker.prototype as unknown as BrokerFactoryPrototype
+  const producerFactorySpy = jest.spyOn(brokerPrototype, "createProducer").mockImplementation(() => producerMock as never);
+  const consumerFactorySpy = jest.spyOn(brokerPrototype, "createConsumer").mockImplementation(() => consumerMock as never);
+  const adminFactorySpy = jest.spyOn(brokerPrototype, "createAdminClient").mockImplementation(() => lowLevelAdminMock as never);
 
   const clearAll = () => {
     producerFactorySpy.mockClear()

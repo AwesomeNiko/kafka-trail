@@ -5,8 +5,8 @@ import type { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { ifNanUseDefaultNumber } from "../libs/helpers/castings.js";
 import { retry } from "../libs/helpers/retry.js";
 
-import { KTKafkaBroker, rdKafkaFactories, type KafkaConsumer, type KafkaWithLogger, type KafkaBrokerConfig, type RdKafkaGlobalConfig } from "./kafka-broker.js";
-import type { KTConsumerRunConfig, KTPartitionAssigner } from "./kafka-types.js";
+import { KTKafkaBroker, type KafkaConsumer, type KafkaWithLogger, type KafkaBrokerConfig, type RdKafkaGlobalConfig } from "./kafka-broker.js";
+import type { KTConsumerRunConfig } from "./kafka-types.js";
 
 type ConfluentEachMessagePayload = {
   topic: string
@@ -63,53 +63,54 @@ export type KTKafkaConsumerConfig = {
     batchConsuming?: boolean
     rebalanceTimeout?: number;
     maxBytes?: number;
-    partitionAssignerFn? : KTPartitionAssigner
   }
 } & KafkaBrokerConfig
 
 const connectConsumer = async (consumer: InstanceType<typeof KafkaConsumer>) => {
-  await new Promise<void>((resolve, reject) => {
+  const error = await new Promise<unknown>((resolve) => {
     consumer.connect(undefined, (err) => {
-      if (err) {
-        reject(err as unknown as Error)
-
-        return
-      }
-
-      resolve()
+      resolve(err ?? null)
     })
   })
+
+  if (error) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw error
+  }
 }
 
 const disconnectConsumer = async (consumer: InstanceType<typeof KafkaConsumer>) => {
-  await new Promise<void>((resolve, reject) => {
+  const error = await new Promise<unknown>((resolve) => {
     consumer.disconnect((err) => {
-      if (err) {
-        reject(err as unknown as Error)
-
-        return
-      }
-
-      resolve()
+      resolve(err ?? null)
     })
   })
+
+  if (error) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw error
+  }
 }
 
 const consumeMessages = async (
   consumer: InstanceType<typeof KafkaConsumer>,
   batchSize: number,
 ): Promise<RdKafkaMessage[]> => {
-  return await new Promise<RdKafkaMessage[]>((resolve, reject) => {
+  const result = await new Promise<{ error: unknown, messages: RdKafkaMessage[] }>((resolve) => {
     consumer.consume(batchSize, (err, messages) => {
-      if (err) {
-        reject(err as unknown as Error)
-
-        return
-      }
-
-      resolve(messages || [])
+      resolve({
+        error: err ?? null,
+        messages: messages || [],
+      })
     })
   })
+
+  if (result.error) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw result.error
+  }
+
+  return result.messages
 }
 
 const commitOffset = (consumer: InstanceType<typeof KafkaConsumer>, offset: RdKafkaTopicPartitionOffset) => {
@@ -151,16 +152,11 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxInFlightRequests,
       rebalanceTimeout,
       maxBytes,
-      partitionAssignerFn,
       batchConsuming,
     } = params.kafkaSettings;
 
     if (!consumerGroupId) {
       throw new Error("group id must be provided");
-    }
-
-    if (partitionAssignerFn) {
-      throw new Error("Custom partition assigners are not supported by the confluent runtime")
     }
 
     const { logger } = params
@@ -204,7 +200,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
   }
 
   async init() {
-    this.consumer = rdKafkaFactories.createConsumer(this.#consumerConfig)
+    this.consumer = this.createConsumer(this.#consumerConfig)
     this.consumer.setDefaultConsumeTimeout(100)
 
     await connectConsumer(this.consumer);
@@ -324,9 +320,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
         value: message.value,
         offset: String(message.offset),
       },
-      heartbeat: () => {
-        return Promise.resolve()
-      },
+      heartbeat: () => Promise.resolve(),
     }
 
     await config.eachMessage(payload)
@@ -362,9 +356,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
           offset: String(message.offset),
         })),
       },
-      heartbeat: () => {
-        return Promise.resolve()
-      },
+      heartbeat: () => Promise.resolve(),
       resolveOffset: (offset: string) => {
         resolvedOffset = offset
       },

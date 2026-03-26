@@ -3,13 +3,11 @@ import type pino from "pino";
 import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.js";
 import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
-import { CODES, KTKafkaBroker, rdKafkaFactories, type Producer, type KafkaBrokerConfig, type KafkaWithLogger, type RdKafkaGlobalConfig } from "./kafka-broker.js";
-import { KTCompressionTypes, type KTCustomPartitioner, type KTHeaders, type KTTopicConfig, type KTTopicMetadata } from "./kafka-types.js";
+import { CODES, KTKafkaBroker, type Producer, type KafkaBrokerConfig, type KafkaWithLogger, type RdKafkaGlobalConfig } from "./kafka-broker.js";
+import { KTCompressionTypes, type KTHeaders, type KTTopicConfig, type KTTopicMetadata } from "./kafka-types.js";
 import type { KTTopicBatchPayload } from "./topic-batch.js";
 
-type KTKafkaProducerConfig = {
-  createPartitioner?: KTCustomPartitioner
-} & KafkaBrokerConfig
+type KTKafkaProducerConfig = KafkaBrokerConfig
 
 type RdKafkaAdminClient = {
   disconnect: () => void
@@ -26,7 +24,7 @@ type RdKafkaMessageHeader = Record<string, string | Buffer>
 
 type ProducerDeliveryOpaque = {
   resolve: () => void
-  reject: (error: Error) => void
+  reject: (error: unknown) => void
 }
 
 const asRdKafkaCompression = (compression: unknown): string | undefined => {
@@ -84,38 +82,36 @@ const toRdKafkaHeaders = (headers: KTHeaders): RdKafkaMessageHeader[] | undefine
 }
 
 const connectProducer = async (producer: InstanceType<typeof Producer>) => {
-  await new Promise<void>((resolve, reject) => {
+  const error = await new Promise<unknown>((resolve) => {
     producer.connect(undefined, (err) => {
-      if (err) {
-        reject(err as unknown as Error)
-
-        return
-      }
-
-      resolve()
+      resolve(err ?? null)
     })
   })
+
+  if (error) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw error
+  }
 }
 
 const disconnectProducer = async (producer: InstanceType<typeof Producer>) => {
-  await new Promise<void>((resolve, reject) => {
+  const error = await new Promise<unknown>((resolve) => {
     producer.disconnect((err) => {
-      if (err) {
-        reject(err as unknown as Error)
-
-        return
-      }
-
-      resolve()
+      resolve(err ?? null)
     })
   })
+
+  if (error) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw error
+  }
 }
 
 const fetchTopicMetadata = async (
   producer: InstanceType<typeof Producer>,
   topic: string,
 ): Promise<KTTopicMetadata | null> => {
-  return await new Promise<KTTopicMetadata | null>((resolve, reject) => {
+  const result = await new Promise<{ error: unknown, metadata: KTTopicMetadata | null }>((resolve) => {
     producer.getMetadata({
       topic,
       timeout: 30_000,
@@ -124,12 +120,18 @@ const fetchTopicMetadata = async (
         const errorCode = (err as { code?: unknown }).code
 
         if (errorCode === CODES.ERRORS.ERR__UNKNOWN_TOPIC || errorCode === CODES.ERRORS.ERR_UNKNOWN_TOPIC_OR_PART) {
-          resolve(null)
+          resolve({
+            error: null,
+            metadata: null,
+          })
 
           return
         }
 
-        reject(err as unknown as Error)
+        resolve({
+          error: err,
+          metadata: null,
+        })
 
         return
       }
@@ -137,19 +139,32 @@ const fetchTopicMetadata = async (
       const topicMetadata = metadata.topics.find((item) => item.name === topic)
 
       if (!topicMetadata) {
-        resolve(null)
+        resolve({
+          error: null,
+          metadata: null,
+        })
 
         return
       }
 
       resolve({
-        name: topicMetadata.name,
-        partitions: topicMetadata.partitions.map((partition) => ({
-          partitionId: partition.id,
-        })),
+        error: null,
+        metadata: {
+          name: topicMetadata.name,
+          partitions: topicMetadata.partitions.map((partition) => ({
+            partitionId: partition.id,
+          })),
+        },
       })
     })
   })
+
+  if (result.error) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    throw result.error
+  }
+
+  return result.metadata
 }
 
 class KTKafkaProducer extends KTKafkaBroker {
@@ -161,11 +176,7 @@ class KTKafkaProducer extends KTKafkaBroker {
   constructor(params: KafkaWithLogger<KTKafkaProducerConfig>) {
     super(params);
 
-    const { createPartitioner, logger } = params;
-
-    if (createPartitioner) {
-      throw new Error("Custom partitioners are not supported by the confluent runtime")
-    }
+    const { logger } = params;
 
     this.#producerConfig = {
       ...this._globalConfig,
@@ -180,7 +191,7 @@ class KTKafkaProducer extends KTKafkaBroker {
   }
 
   async init() {
-    this.#producer = rdKafkaFactories.createProducer(this.#producerConfig)
+    this.#producer = this.createProducer(this.#producerConfig)
     this.#producer.setPollInterval(50)
     this.#producer.on("delivery-report", (err, report) => {
       const opaque = report.opaque as ProducerDeliveryOpaque | undefined
@@ -190,14 +201,14 @@ class KTKafkaProducer extends KTKafkaBroker {
       }
 
       if (err) {
-        opaque.reject(err as unknown as Error)
+        opaque.reject(err)
 
         return
       }
 
       opaque.resolve()
     })
-    this.#admin = rdKafkaFactories.createAdminClient(this._globalConfig) as RdKafkaAdminClient
+    this.#admin = this.createAdminClient(this._globalConfig) as RdKafkaAdminClient
 
     await connectProducer(this.#producer)
   }
@@ -228,22 +239,21 @@ class KTKafkaProducer extends KTKafkaBroker {
     const currentTopic = await fetchTopicMetadata(producer, topicConfig.topic)
 
     if (!currentTopic) {
-      await new Promise<void>((resolve, reject) => {
+      const error = await new Promise<unknown>((resolve) => {
         admin.createTopic({
           topic: topicConfig.topic,
           num_partitions: topicConfig.numPartitions || 1,
           replication_factor: topicConfig.replicationFactor || 1,
           config: Object.fromEntries((topicConfig.configEntries || []).map((entry) => [entry.name, entry.value])),
         }, 30_000, (err: unknown) => {
-          if (err) {
-            reject(err as unknown as Error)
-
-            return
-          }
-
-          resolve()
+          resolve(err ?? null)
         })
       })
+
+      if (error) {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
+        throw error
+      }
 
       return
     }
@@ -306,10 +316,10 @@ class KTKafkaProducer extends KTKafkaBroker {
       throw new Error("Producer is not initialized")
     }
 
-    await new Promise<void>((resolve, reject) => {
+    const deliveryError = await new Promise<unknown>((resolve) => {
       const opaque: ProducerDeliveryOpaque = {
-        resolve,
-        reject,
+        resolve: () => resolve(null),
+        reject: (error) => resolve(error),
       }
 
       try {
@@ -323,9 +333,14 @@ class KTKafkaProducer extends KTKafkaBroker {
           toRdKafkaHeaders(headers),
         )
       } catch (err) {
-        reject(err as unknown as Error)
+        resolve(err)
       }
     })
+
+    if (deliveryError) {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw deliveryError
+    }
   }
 
   async #createPartitions(params: { topicPartitions: Array<{ topic: string, count: number }> }): Promise<boolean> {
@@ -335,18 +350,17 @@ class KTKafkaProducer extends KTKafkaBroker {
       throw new Error("Producer admin is not initialized")
     }
 
-    await Promise.all(params.topicPartitions.map((topicPartition) => {
-      return new Promise<void>((resolve, reject) => {
+    await Promise.all(params.topicPartitions.map(async (topicPartition) => {
+      const error = await new Promise<unknown>((resolve) => {
         admin.createPartitions(topicPartition.topic, topicPartition.count, 30_000, (err: unknown) => {
-          if (err) {
-            reject(err as unknown as Error)
-
-            return
-          }
-
-          resolve()
+          resolve(err ?? null)
         })
       })
+
+      if (error) {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
+        throw error
+      }
     }))
 
     return true

@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from "@jest/globals";
 import { z } from "zod";
 
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
-import { CreateKTTopic, KTTopic } from "../kafka/topic.js";
+import { CreateKTTopic } from "../kafka/topic.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createZodCodec } from "../libs/schema/adapters/zod-adapter.js";
 import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
@@ -140,9 +140,5 @@ describe("CreateKTTopic", () => {
         headers: {},
       },
     ]);
-  });
-
-  it("should throw clear runtime deprecation error for KTTopic", () => {
-    expect(() => KTTopic(createTopicSettings("test.deprecated.topic"))).toThrow("Deprecated. use CreateKTTopic(...)");
   });
 });

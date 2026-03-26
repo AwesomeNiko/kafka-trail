@@ -24,12 +24,13 @@ export type CtxWithKafka<T> = T & KafkaLogger
 
 /**
  * @example
- * const TestExampleTopic = KTTopic<{
+ * const { BaseTopic: TestExampleTopic } = CreateKTTopic<{
  *     field: number
  * }>({
  *   topic: KafkaTopicName.fromString('test.example'),
  *   numPartitions: 1,
  *   batchMessageSizeToConsume: 10,
+ *   createDLQ: false,
  * })
  *
  * KTHandler({

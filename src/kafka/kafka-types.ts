@@ -1,4 +1,4 @@
-import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import type { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 export const KTCompressionTypes = {
   None: 0,
@@ -34,33 +34,18 @@ export type KTRetryConfig = {
   maxRetryTime?: number
 }
 
+export type KTSaslConfig = {
+  mechanism: string
+  username?: string
+  password?: string
+}
+
 export type KTPureKafkaConfig = {
-  ssl?: boolean | object
-  sasl?: Record<string, unknown>
-  authenticationTimeout?: number
-  reauthenticationThreshold?: number
+  ssl?: boolean
+  sasl?: KTSaslConfig
   requestTimeout?: number
-  enforceRequestTimeout?: boolean
   retry?: KTRetryConfig
-  socketFactory?: unknown
-  logLevel?: unknown
-  logCreator?: unknown
 }
-
-export type KTPartitionMetadata = {
-  partitionId: number
-}
-
-export type KTCustomPartitionerArgs = {
-  message: {
-    key: KafkaMessageKey | Buffer | null | undefined
-  }
-  partitionMetadata: KTPartitionMetadata[]
-}
-
-export type KTCustomPartitioner = () => (params: KTCustomPartitionerArgs) => number
-
-export type KTPartitionAssigner = "roundrobin" | "range" | "cooperative-sticky" | ((...args: never[]) => unknown)
 
 export type KTTopicPartitionConfig = {
   topic: string

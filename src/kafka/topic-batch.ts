@@ -3,7 +3,7 @@ import { ktDecode, ktEncode, type KTTopicPayloadParser } from "../libs/helpers/d
 
 import type { KTHeaders } from "./kafka-types.js";
 import type { DLQPayload , KTTopicEvent,  KTTopicSettings } from "./topic.js";
-import { DLQKTTopic  } from "./topic.js";
+import { createDLQTopicEvent } from "./topic.js";
 
 export type KTTopicBatchRawMessage = Array<Omit<KTTopicBatchMessage, 'value'> & {value: object}>
 
@@ -69,15 +69,6 @@ const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(
   return fn
 }
 
-/**
- * @deprecated Use CreateKTTopicBatch instead
- */
-export const KTTopicBatch = <Payload extends KTTopicBatchRawMessage>(
-  _settings: KTTopicSettings,
-): KTTopicBatchEvent<Payload> => {
-  throw new Error("Deprecated. use CreateKTTopicBatch(...)");
-}
-
 export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage>(
   settings: KTTopicSettings,
   validatorFn?: KTTopicPayloadParser<Payload[number]['value']>,
@@ -89,7 +80,7 @@ export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage>(
   let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
 
   if (settings.createDLQ) {
-    DLQTopic = DLQKTTopic<Payload>(settings)
+    DLQTopic = createDLQTopicEvent<Payload>(settings)
   }
 
   return { BaseTopic, DLQTopic }

@@ -88,18 +88,15 @@ const createTopicEvent = <Payload extends object>(
   return fn
 }
 
-/**
- * @deprecated Use CreateKTTopic instead
- */
-export const KTTopic = <Payload extends object>(
-  _settings: KTTopicSettings,
-  _validatorFn?: KTTopicPayloadParser<Payload>,
-): KTTopicEvent<Payload> => {
-  throw new Error("Deprecated. use CreateKTTopic(...)");
-}
-
-export const DLQKTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<DLQPayload<Payload>>): KTTopicEvent<DLQPayload<Payload>> => {
-  return createTopicEvent<DLQPayload<Payload>>({ ...settings, createDLQ: true, topic: CreateDlqTopicName(settings.topic) }, validatorFn)
+export const createDLQTopicEvent = <Payload extends object>(
+  settings: KTTopicSettings,
+  validatorFn?: KTTopicPayloadParser<DLQPayload<Payload>>,
+): KTTopicEvent<DLQPayload<Payload>> => {
+  return createTopicEvent<DLQPayload<Payload>>({
+    ...settings,
+    createDLQ: true,
+    topic: CreateDlqTopicName(settings.topic),
+  }, validatorFn)
 }
 
 export const CreateKTTopic = <Payload extends object> (settings: KTTopicSettings, validatorFn?:  KTTopicPayloadParser<Payload>): {
@@ -110,7 +107,7 @@ export const CreateKTTopic = <Payload extends object> (settings: KTTopicSettings
   let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
 
   if (settings.createDLQ) {
-    DLQTopic = DLQKTTopic<Payload>(settings)
+    DLQTopic = createDLQTopicEvent<Payload>(settings)
   }
 
   return { BaseTopic, DLQTopic }

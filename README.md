@@ -564,13 +564,6 @@ Notes:
 - call `glueAdapter.destroy()` on shutdown if you want to close the AWS SDK client explicitly;
 - call `clearAwsGlueSchemaCache()` if you need to invalidate cached schemas manually.
 
-### Deprecated topic creators
-`KTTopic(...)` and `KTTopicBatch(...)` were deprecated in previous version.
-Current versions intentionally throw runtime errors if these APIs are invoked (for teams that have not migrated yet).
-It's planned to be removed in the next version:
-- `Deprecated. use CreateKTTopic(...)`
-- `Deprecated. use CreateKTTopicBatch(...)`
-
 ## Contributing
 Contributions are welcome! If you’d like to improve this library:
 

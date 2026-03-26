@@ -1,9 +1,8 @@
 import { ConsumerSubscribeError, KTRetryError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError, ProducerInitRequiredForDLQError } from "./custom-errors/kafka-errors.js"
 import { KTHandler } from "./kafka/consumer-handler.js";
-import { CustomPartitioner } from "./kafka/custom-partitioner.js";
 import { KTCompressionTypes } from "./kafka/kafka-types.js";
-import { KTTopicBatch, CreateKTTopicBatch } from "./kafka/topic-batch.js"
-import { KTTopic, CreateKTTopic, DLQKTTopic } from "./kafka/topic.js";
+import { CreateKTTopicBatch } from "./kafka/topic-batch.js"
+import { CreateKTTopic } from "./kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "./libs/branded-types/kafka/index.js";
 import { createAjvCodec, createAjvCodecFromSchema } from "./libs/schema/adapters/ajv-adapter.js";
 import { createAwsGlueCodec, clearAwsGlueSchemaCache, createAwsGlueSchemaRegistryAdapter, preloadAwsGlueSchemas } from "./libs/schema/adapters/aws-glue-adapter.js";
@@ -17,9 +16,6 @@ export type {
   KTHeaders,
   KTTopicConfig,
   KTPureKafkaConfig,
-  KTCustomPartitioner,
-  KTCustomPartitionerArgs,
-  KTPartitionAssigner,
 } from "./kafka/kafka-types.js"
 export type { KTCodec, KTSchemaMeta } from "./libs/schema/schema-codec.js"
 export type {
@@ -47,9 +43,6 @@ export type { ZodSchemaLike } from "./libs/schema/adapters/zod-adapter.js"
 
 export {
   KTMessageQueue,
-  KTTopic,
-  KTTopicBatch,
-  DLQKTTopic,
   KTHandler,
   KafkaClientId,
   KafkaMessageKey,
@@ -62,7 +55,6 @@ export {
   ProducerNotInitializedError,
   ProducerInitRequiredForDLQError,
   KTCompressionTypes,
-  CustomPartitioner,
   CreateKTTopic,
   CreateKTTopicBatch,
   createAjvCodec,

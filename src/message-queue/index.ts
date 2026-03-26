@@ -10,7 +10,7 @@ import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import type { KTTopicBatchPayload } from "../kafka/topic-batch.js";
-import { DLQKTTopic, type KTTopicEvent, type KTTopicPayloadWithMeta } from "../kafka/topic.js";
+import { createDLQTopicEvent, type KTTopicEvent, type KTTopicPayloadWithMeta } from "../kafka/topic.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
 
@@ -113,7 +113,7 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   async #publishToDlq(params: KTPublishToDlqParams<Ctx>) {
-    const Topic = DLQKTTopic(params.handler.topic.topicSettings)
+    const Topic = createDLQTopicEvent(params.handler.topic.topicSettings)
     const Payload = Topic({
       originalOffset: params.originalOffset,
       originalTopic: params.originalTopic,
