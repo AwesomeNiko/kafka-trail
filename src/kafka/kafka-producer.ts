@@ -8,6 +8,7 @@ import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafk
 import { CustomPartitioner } from "./custom-partitioner.js";
 import type { KafkaBrokerConfig, KafkaWithLogger } from "./kafka-broker.js";
 import { KTKafkaBroker } from "./kafka-broker.js";
+import type { KTRuntimeAdmin, KTRuntimeProducer } from "./runtime/transport-types.js";
 import type { KTTopicBatchPayload } from "./topic-batch.js";
 
 type KTKafkaProducerConfig = {
@@ -15,8 +16,8 @@ type KTKafkaProducerConfig = {
 } & KafkaBrokerConfig
 
 class KTKafkaProducer extends KTKafkaBroker {
-  #producer: Kafka.Producer;
-  #admin: Kafka.Admin;
+  #producer: KTRuntimeProducer;
+  #admin: KTRuntimeAdmin;
   #logger: pino.Logger;
   #compressionType: CompressionTypes;
 
@@ -31,11 +32,10 @@ class KTKafkaProducer extends KTKafkaBroker {
       customPartitioner = CustomPartitioner.roundRobin
     }
 
-    this.#producer = this._kafka.producer({
+    this.#producer = this._runtime.createProducer({
       createPartitioner: customPartitioner,
-      allowAutoTopicCreation: false,
     });
-    this.#admin = this._kafka.admin();
+    this.#admin = this._runtime.createAdmin();
     this.#logger = logger;
     this.#compressionType = params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4;
   }

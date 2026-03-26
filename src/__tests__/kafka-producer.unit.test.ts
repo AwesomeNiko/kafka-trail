@@ -11,8 +11,8 @@ const {
   kafkaAdminConnectFn,
   kafkaProducerConnectFn,
   sendMsgFn,
-  kafkaAdminMock,
-  kafkaProducerMock,
+  createAdminMock,
+  createProducerMock,
 } = createKafkaMocks({
   topicName: 'basic-topic-name',
   partitions: 2,
@@ -23,8 +23,8 @@ describe("KafkaProducer test", () => {
     kafkaAdminConnectFn.mockClear();
     kafkaProducerConnectFn.mockClear();
     sendMsgFn.mockClear();
-    kafkaAdminMock.mockClear();
-    kafkaProducerMock.mockClear();
+    createAdminMock.mockClear();
+    createProducerMock.mockClear();
   });
 
   it("should init successful", async () => {

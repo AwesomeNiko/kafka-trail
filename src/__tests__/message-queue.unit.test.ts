@@ -23,6 +23,8 @@ const kafkaConsumerInitMock = jest.spyOn(KTKafkaConsumer.prototype, 'init').mock
 // @ts-expect-error too much return arguments
 const kafkaConsumerSubscribeTopicMock = jest.spyOn(KTKafkaConsumer.prototype, 'subscribeTopic').mockImplementation(jest.fn);
 // @ts-expect-error too much return arguments
+const kafkaConsumerRunMock = jest.spyOn(KTKafkaConsumer.prototype, 'run').mockImplementation(jest.fn);
+// @ts-expect-error too much return arguments
 const kafkaProducerCreateTopicMock = jest.spyOn(KTKafkaProducer.prototype, 'createTopic').mockImplementation(jest.fn);
 // @ts-expect-error too much return arguments
 const kafkaProducerSendSingleMessageMock = jest.spyOn(KTKafkaProducer.prototype, 'sendSingleMessage').mockImplementation(jest.fn);
@@ -73,6 +75,7 @@ describe("KTMessageQueue test", () => {
     kafkaProducerSendBatchMessagesMock.mockClear();
     kafkaConsumerInitMock.mockClear();
     kafkaConsumerSubscribeTopicMock.mockClear();
+    kafkaConsumerRunMock.mockClear();
   });
 
   it("should init for producer successfully", async () => {

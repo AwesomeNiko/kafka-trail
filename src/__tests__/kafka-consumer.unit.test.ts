@@ -6,14 +6,14 @@ import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index
 
 import { createKafkaMocks } from "./mocks/create-mocks.js";
 
-const { consumerSubscribe, kafkaConsumerMock } = createKafkaMocks({
+const { consumerSubscribe, createConsumerMock } = createKafkaMocks({
   topicName: "consumer-test-topic",
 });
 
 describe("KafkaConsumer subscribe config", () => {
   beforeEach(() => {
     consumerSubscribe.mockClear();
-    kafkaConsumerMock.mockClear();
+    createConsumerMock.mockClear();
   });
 
   it("should subscribe with fromBeginning=true by default", async () => {

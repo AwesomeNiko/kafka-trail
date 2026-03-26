@@ -241,7 +241,8 @@ class KTMessageQueue<Ctx extends object> {
     const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
     const consumer = this.#requireConsumer();
     await consumer.subscribeTopic(topicNames)
-    await consumer.consumer.run({
+    await consumer.run({
+      mode: "eachMessage",
       partitionsConsumedConcurrently: 1,
       eachMessage: async (eachMessagePayload) => {
         const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
@@ -302,7 +303,8 @@ class KTMessageQueue<Ctx extends object> {
     const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
     const consumer = this.#requireConsumer();
     await consumer.subscribeTopic(topicNames)
-    await consumer.consumer.run({
+    await consumer.run({
+      mode: "eachBatch",
       eachBatchAutoResolve: false,
       partitionsConsumedConcurrently: 1,
       eachBatch: async (eachBatchPayload) => {

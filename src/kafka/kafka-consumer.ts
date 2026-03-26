@@ -1,4 +1,3 @@
-import type Kafka from "kafkajs";
 import type { PartitionAssigner } from "kafkajs";
 import { PartitionAssigners } from "kafkajs";
 import type pino from "pino";
@@ -10,6 +9,7 @@ import { retry } from "../libs/helpers/retry.js";
 
 import type { KafkaWithLogger , KafkaBrokerConfig } from "./kafka-broker.js";
 import { KTKafkaBroker } from "./kafka-broker.js";
+import type { KTRuntimeConsumer, KTRuntimeConsumerRunConfig } from "./runtime/transport-types.js";
 
 export type KTKafkaConsumerConfig = {
   kafkaSettings: {
@@ -36,7 +36,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
   #logger: pino.Logger;
   heartBeatInterval: number;
 
-  consumer: Kafka.Consumer
+  consumer: KTRuntimeConsumer
 
   #subscribeRetry = {
     interval: 2000,
@@ -91,7 +91,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       partitionsAssignersFunctions.unshift(partitionAssignerFn)
     }
 
-    this.consumer = this._kafka.consumer({
+    this.consumer = this._runtime.createConsumer({
       groupId: consumerGroupId,
       allowAutoTopicCreation: false,
       heartbeatInterval: this.heartBeatInterval,
@@ -140,6 +140,10 @@ class KTKafkaConsumer extends KTKafkaBroker {
     if (!isSubscribed) {
       throw new ConsumerSubscribeError();
     }
+  }
+
+  async run(config: KTRuntimeConsumerRunConfig) {
+    await this.consumer.run(config)
   }
 }
 

@@ -1,28 +1,24 @@
 import { jest } from "@jest/globals";
-import type { Admin,
-  AdminConfig, Consumer, ConsumerRunConfig,
-  ConsumerSubscribeTopics,
-  ITopicConfig,
-  ITopicMetadata,
-  ITopicPartitionConfig,
-  Producer, ProducerRecord,
-  RecordMetadata } from "kafkajs";
-import KafkaJS from "kafkajs";
+
+import { resetKafkaRuntimeFactoryForTests, setKafkaRuntimeFactoryForTests } from "../../kafka/runtime/runtime-factory.js";
+import type { KTRuntimeAdmin, KTRuntimeConsumer, KTRuntimeProducer, KTRuntimeTopicConfig, KTRuntimeTopicMetadata, KTRuntimeConsumerRunConfig } from "../../kafka/runtime/transport-types.js";
 
 const createKafkaMocks = ({
-  topicName = 'test-topic-name',
+  topicName = "test-topic-name",
   partitions = 1,
   payloadToRun = [],
 } = {}) => {
   const kafkaAdminConnectFn = jest.fn<() => Promise<void>>();
+  const kafkaAdminDisconnectFn = jest.fn<() => Promise<void>>();
   const kafkaProducerConnectFn = jest.fn<() => Promise<void>>();
+  const kafkaProducerDisconnectFn = jest.fn<() => Promise<void>>();
   const kafkaConsumerConnectFn = jest.fn<() => Promise<void>>();
+  const kafkaConsumerDisconnectFn = jest.fn<() => Promise<void>>();
+  const kafkaConsumerStopFn = jest.fn<() => Promise<void>>();
 
-  // @ts-expect-error too much return arguments
-  const fetchTopicMetadataFn = jest.fn<( options: {topics: string[]}) => Promise<{topics: ITopicMetadata[]}>>().mockImplementation(({ topics }) => {
-
-    if(!topics?.filter((argTopicName) => argTopicName === topicName).length) {
-      throw new KafkaJS.KafkaJSProtocolError('This server does not host this topic-partition');
+  const fetchTopicMetadataFn = jest.fn<(options: { topics: string[] }) => Promise<{ topics: KTRuntimeTopicMetadata[] }>>().mockImplementation(({ topics }) => {
+    if (!topics.includes(topicName)) {
+      return Promise.reject(new Error("Topic not found"))
     }
 
     return Promise.resolve({
@@ -32,139 +28,107 @@ const createKafkaMocks = ({
       }],
     })
   });
-  const createPartitionsFn = jest.fn<(options: {validateOnly?: boolean, timeout?: number, topicPartitions: ITopicPartitionConfig[]}) => Promise<boolean>>();
-  const createTopicsFn = jest.fn<(options: {validateOnly?: boolean, waitForLeaders?: boolean, timeout?: number, topics: ITopicConfig[]}) => Promise<boolean>>();
-  const consumerSubscribe = jest.fn<(subscription: ConsumerSubscribeTopics) => Promise<void>>();
-  const sendMsgFn = jest.fn<(record: ProducerRecord) => Promise<RecordMetadata[]>>();
+  const createPartitionsFn = jest.fn<(options: { topicPartitions: Array<{ topic: string, count: number }> }) => Promise<boolean>>();
+  const createTopicsFn = jest.fn<(options: { topics: KTRuntimeTopicConfig[], waitForLeaders?: boolean }) => Promise<boolean>>();
+  const consumerSubscribe = jest.fn<(subscription: { topics: string[], fromBeginning: boolean }) => Promise<void>>();
+  const sendMsgFn = jest.fn<(record: { topic: string, compression: unknown, messages: Array<{ key: string | null, value: string, headers?: Record<string, unknown> }> }) => Promise<unknown>>();
 
-  // @ts-expect-error too much return arguments
-  const adminMockImpl: (config?: AdminConfig) => Admin = () => ({
+  const consumerRun = jest.fn<(config: KTRuntimeConsumerRunConfig) => Promise<void>>().mockImplementation(async (config) => {
+    const messages = payloadToRun.map((v, idx) => ({
+      key: null,
+      value: Buffer.from(JSON.stringify(v)),
+      offset: String(idx),
+    }))
+
+    if (config.mode === "eachMessage") {
+      for (const message of messages) {
+        await config.eachMessage({
+          topic: topicName,
+          partition: 0,
+          message,
+          heartbeat() {
+            return Promise.resolve()
+          },
+        });
+      }
+
+      return Promise.resolve()
+    }
+
+    await config.eachBatch({
+      batch: {
+        topic: topicName,
+        partition: 0,
+        messages,
+      },
+      heartbeat() {
+        return Promise.resolve()
+      },
+      resolveOffset() {
+        // noop for unit tests
+      },
+    })
+
+    return Promise.resolve()
+  });
+
+  const adminMock: KTRuntimeAdmin = {
     connect: kafkaAdminConnectFn,
+    disconnect: kafkaAdminDisconnectFn,
     fetchTopicMetadata: fetchTopicMetadataFn,
     createPartitions: createPartitionsFn,
     createTopics: createTopicsFn,
-  });
+  };
 
-  // @ts-expect-error too much return arguments
-  const kafkaProducerMockImpl: ()  => Producer = () => ({
+  const producerMock: KTRuntimeProducer = {
     connect: kafkaProducerConnectFn,
+    disconnect: kafkaProducerDisconnectFn,
     send: sendMsgFn,
-  })
+  };
 
-  // @ts-expect-error too much return arguments
-  const kafkaConsumerMockImpl: ()  => Consumer = () => ({
+  const consumerMock: KTRuntimeConsumer = {
     connect: kafkaConsumerConnectFn,
+    disconnect: kafkaConsumerDisconnectFn,
+    stop: kafkaConsumerStopFn,
     subscribe: consumerSubscribe,
-    async run(config?: ConsumerRunConfig): Promise<void> {
-      if (!config) return Promise.resolve()
-      const messages = payloadToRun.map((v, idx) => ({
-        key: null,
-        value: Buffer.from(JSON.stringify(v)),
-        timestamp: '0',
-        attributes: 0,
-        offset: String(idx),
-        headers: {},
-      }))
+    run: consumerRun,
+  };
 
-      if (config.eachMessage) {
-        for (const message of messages) {
-          await config.eachMessage({
-            topic: topicName,
-            partition: 0,
-            message,
-            heartbeat(): Promise<void> {
-              return Promise.resolve()
-            },
-            pause(): () => void {
-              return () => undefined
-            },
-          });
-        }
+  const createAdminMock = jest.fn<() => KTRuntimeAdmin>(() => adminMock);
+  const createProducerMock = jest.fn<() => KTRuntimeProducer>(() => producerMock);
+  const createConsumerMock = jest.fn<() => KTRuntimeConsumer>(() => consumerMock);
 
-        return Promise.resolve()
-      }
+  const createKafkaRuntimeMock = jest.fn(() => ({
+    createAdmin: createAdminMock,
+    createProducer: createProducerMock,
+    createConsumer: createConsumerMock,
+  }));
 
-      if (!config.eachBatch) return Promise.resolve()
-
-      await config.eachBatch({
-        batch: {
-          topic: topicName,
-          partition: 0,
-          highWatermark: '0',
-          messages,
-          isEmpty() {
-            return messages.length === 0
-          },
-          firstOffset() {
-            return messages[0]?.offset ?? null
-          },
-          lastOffset() {
-            return messages[messages.length - 1]?.offset ?? '0'
-          },
-          offsetLag() {
-            return '0'
-          },
-          offsetLagLow() {
-            return '0'
-          },
-        },
-        heartbeat(): Promise<void> {
-          return Promise.resolve()
-        },
-        resolveOffset(): void {
-          // noop for unit tests
-        },
-        pause(): () => void {
-          return () => undefined
-        },
-        async commitOffsetsIfNecessary(): Promise<void> {
-          return Promise.resolve()
-        },
-        uncommittedOffsets() {
-          return { topics: [] }
-        },
-        isRunning() {
-          return true
-        },
-        isStale() {
-          return false
-        },
-      })
-
-      return Promise.resolve()
-    },
-  })
-
-  const kafkaAdminMock = jest
-    .spyOn(KafkaJS.Kafka.prototype, "admin")
-    .mockImplementation(adminMockImpl);
-
-  const kafkaProducerMock = jest
-    .spyOn(KafkaJS.Kafka.prototype, 'producer')
-    .mockImplementation(kafkaProducerMockImpl);
-
-  const kafkaConsumerMock = jest
-    .spyOn(KafkaJS.Kafka.prototype, 'consumer')
-    .mockImplementation(kafkaConsumerMockImpl);
+  setKafkaRuntimeFactoryForTests(() => createKafkaRuntimeMock());
 
   const clearAll = () => {
-    kafkaAdminMock.mockClear()
-    kafkaProducerMock.mockClear()
-    kafkaConsumerMock.mockClear()
+    resetKafkaRuntimeFactoryForTests()
+    createKafkaRuntimeMock.mockClear()
+    createAdminMock.mockClear()
+    createProducerMock.mockClear()
+    createConsumerMock.mockClear()
   }
 
   return {
     kafkaAdminConnectFn,
     kafkaProducerConnectFn,
+    kafkaConsumerConnectFn,
+    kafkaConsumerStopFn,
     fetchTopicMetadataFn,
     createPartitionsFn,
     createTopicsFn,
-    kafkaConsumerConnectFn,
-    sendMsgFn,
     consumerSubscribe,
-    kafkaAdminMock,
-    kafkaProducerMock,
-    kafkaConsumerMock,
+    consumerRun,
+    sendMsgFn,
+    createKafkaRuntimeMock,
+    createAdminMock,
+    createProducerMock,
+    createConsumerMock,
     clearAll,
   };
 };
