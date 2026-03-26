@@ -9,7 +9,7 @@ import { retry } from "../libs/helpers/retry.js";
 
 import type { KafkaWithLogger , KafkaBrokerConfig } from "./kafka-broker.js";
 import { KTKafkaBroker } from "./kafka-broker.js";
-import type { KTRuntimeConsumer, KTRuntimeConsumerRunConfig } from "./runtime/transport-types.js";
+import type { KTRuntimeConsumer, KTRuntimeConsumerRunConfig, KTRuntimePartitionAssigner } from "./runtime/transport-types.js";
 
 export type KTKafkaConsumerConfig = {
   kafkaSettings: {
@@ -64,6 +64,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxBytes,
       partitionAssignerFn,
     } = params.kafkaSettings;
+    const runtime = params.kafkaSettings.runtime ?? "confluent-kafkajs"
 
     if (!consumerGroupId) {
       throw new Error("group id must be provided");
@@ -85,9 +86,16 @@ class KTKafkaConsumer extends KTKafkaBroker {
     const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
     const maxBytesParam = ifNanUseDefaultNumber(maxBytes, 10_485_760)
 
-    const partitionsAssignersFunctions = [PartitionAssigners.roundRobin]
+    const isConfluentRuntime = runtime === "confluent-kafkajs"
+    const partitionsAssignersFunctions: KTRuntimePartitionAssigner[] = isConfluentRuntime
+      ? ["roundrobin"]
+      : [PartitionAssigners.roundRobin]
 
     if (partitionAssignerFn) {
+      if (isConfluentRuntime) {
+        throw new Error("Custom partition assigners are not supported by the confluent-kafkajs runtime")
+      }
+
       partitionsAssignersFunctions.unshift(partitionAssignerFn)
     }
 
@@ -102,6 +110,8 @@ class KTKafkaConsumer extends KTKafkaBroker {
       rebalanceTimeout: rebalanceTimeoutParam,
       partitionAssigners: partitionsAssignersFunctions,
       maxBytes: maxBytesParam,
+      fromBeginning: this.#subscribeFromBeginning,
+      batchConsuming: params.kafkaSettings.batchConsuming ?? false,
     });
   }
 

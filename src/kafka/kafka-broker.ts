@@ -10,6 +10,7 @@ type KTKafkaSettings = {
   brokerUrls: string[],
   clientId: KafkaClientId,
   connectionTimeout: number
+  runtime?: "kafkajs" | "confluent-kafkajs"
   compressionCodec?: {
     codecType: KafkaCompressionTypes.LZ4,
     codecFn?: lz4Codec

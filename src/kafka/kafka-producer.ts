@@ -25,15 +25,21 @@ class KTKafkaProducer extends KTKafkaBroker {
     super(params);
 
     const { createPartitioner, logger } = params;
+    const runtime = params.kafkaSettings.runtime ?? "confluent-kafkajs"
 
     let customPartitioner = createPartitioner
 
-    if(!customPartitioner) {
+    if (!customPartitioner && runtime === "kafkajs") {
       customPartitioner = CustomPartitioner.roundRobin
+    }
+
+    if (runtime === "confluent-kafkajs" && createPartitioner) {
+      throw new Error("Custom partitioners are not supported by the confluent-kafkajs runtime")
     }
 
     this.#producer = this._runtime.createProducer({
       createPartitioner: customPartitioner,
+      compression: params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4,
     });
     this.#admin = this._runtime.createAdmin();
     this.#logger = logger;

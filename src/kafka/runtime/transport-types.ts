@@ -4,7 +4,7 @@ import type { KafkaMessageKey, KafkaTopicName } from "../../libs/branded-types/k
 
 export type KTRuntimeTopicConfig = ITopicConfig
 export type KTRuntimeHeaders = IHeaders
-export type KTRuntimePartitionAssigner = PartitionAssigner
+export type KTRuntimePartitionAssigner = PartitionAssigner | string
 
 export type KTRuntimeTopicPartitionConfig = {
   topic: string
@@ -95,6 +95,7 @@ export interface KTRuntimeClient {
   createAdmin(): KTRuntimeAdmin
   createProducer(params: {
     createPartitioner?: unknown
+    compression?: unknown
   }): KTRuntimeProducer
   createConsumer(params: {
     groupId: string
@@ -107,5 +108,7 @@ export interface KTRuntimeClient {
     rebalanceTimeout: number
     partitionAssigners: KTRuntimePartitionAssigner[]
     maxBytes: number
+    fromBeginning: boolean
+    batchConsuming: boolean
   }): KTRuntimeConsumer
 }

@@ -199,7 +199,7 @@ class KTKafkaJSClientAdapter implements KTRuntimeClient {
     return new KTKafkaJSAdminAdapter(this.#kafka.admin());
   }
 
-  createProducer(params: { createPartitioner?: unknown }): KTRuntimeProducer {
+  createProducer(params: { createPartitioner?: unknown, compression?: unknown }): KTRuntimeProducer {
     const producerConfig: {
       allowAutoTopicCreation: false
       createPartitioner?: ICustomPartitioner
@@ -225,6 +225,8 @@ class KTKafkaJSClientAdapter implements KTRuntimeClient {
     rebalanceTimeout: number
     partitionAssigners: KTRuntimePartitionAssigner[]
     maxBytes: number
+    fromBeginning: boolean
+    batchConsuming: boolean
   }): KTRuntimeConsumer {
     return new KTKafkaJSConsumerAdapter(this.#kafka.consumer({
       groupId: params.groupId,
@@ -235,7 +237,7 @@ class KTKafkaJSClientAdapter implements KTRuntimeClient {
       maxBytesPerPartition: params.maxBytesPerPartition,
       maxInFlightRequests: params.maxInFlightRequests,
       rebalanceTimeout: params.rebalanceTimeout,
-      partitionAssigners: params.partitionAssigners,
+      partitionAssigners: params.partitionAssigners as KafkaJS.PartitionAssigner[],
       maxBytes: params.maxBytes,
     }));
   }
