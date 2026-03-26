@@ -1,52 +1,43 @@
-import type { ICustomPartitioner, IHeaders } from "kafkajs";
-import Kafka, { CompressionTypes } from "kafkajs";
 import type pino from "pino";
 
 import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.js";
 import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
-import { CustomPartitioner } from "./custom-partitioner.js";
 import type { KafkaBrokerConfig, KafkaWithLogger } from "./kafka-broker.js";
 import { KTKafkaBroker } from "./kafka-broker.js";
+import { KTCompressionTypes, type KTCompressionType, type KTCustomPartitioner, type KTHeaders, type KTTopicConfig } from "./kafka-types.js";
 import type { KTRuntimeAdmin, KTRuntimeProducer } from "./runtime/transport-types.js";
 import type { KTTopicBatchPayload } from "./topic-batch.js";
 
 type KTKafkaProducerConfig = {
-  createPartitioner?: ICustomPartitioner
+  createPartitioner?: KTCustomPartitioner
 } & KafkaBrokerConfig
 
 class KTKafkaProducer extends KTKafkaBroker {
   #producer: KTRuntimeProducer;
   #admin: KTRuntimeAdmin;
   #logger: pino.Logger;
-  #compressionType: CompressionTypes;
+  #compressionType: KTCompressionType;
   #adminDependsOnProducer: boolean;
 
   constructor(params: KafkaWithLogger<KTKafkaProducerConfig>) {
     super(params);
 
     const { createPartitioner, logger } = params;
-    const runtime = params.kafkaSettings.runtime ?? "confluent-kafkajs"
 
-    let customPartitioner = createPartitioner
-
-    if (!customPartitioner && runtime === "kafkajs") {
-      customPartitioner = CustomPartitioner.roundRobin
-    }
-
-    if (runtime === "confluent-kafkajs" && createPartitioner) {
-      throw new Error("Custom partitioners are not supported by the confluent-kafkajs runtime")
+    if (createPartitioner) {
+      throw new Error("Custom partitioners are not supported by the confluent runtime")
     }
 
     this.#producer = this._runtime.createProducer({
-      createPartitioner: customPartitioner,
-      compression: params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4,
+      createPartitioner,
+      compression: params.kafkaSettings.compressionCodec?.codecType ?? KTCompressionTypes.LZ4,
     });
     const dependentAdmin = this.#producer.createDependentAdmin?.()
 
     this.#admin = dependentAdmin ?? this._runtime.createAdmin();
     this.#logger = logger;
-    this.#compressionType = params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4;
+    this.#compressionType = params.kafkaSettings.compressionCodec?.codecType ?? KTCompressionTypes.LZ4;
     this.#adminDependsOnProducer = Boolean(dependentAdmin)
   }
 
@@ -76,56 +67,49 @@ class KTKafkaProducer extends KTKafkaBroker {
     await Promise.all([this.#admin.disconnect(), this.#producer.disconnect()]);
   }
 
-  async createTopic(topicConfig: Kafka.ITopicConfig): Promise<void> {
+  async createTopic(topicConfig: KTTopicConfig): Promise<void> {
     this.#logger.info({
       topicName: topicConfig.topic,
       topicConfig,
     }, "Resolving topics...");
 
-    try {
-      const topicMetadata = await this.#admin.fetchTopicMetadata({ topics: [topicConfig.topic] });
+    const topicMetadata = await this.#admin.fetchTopicMetadata({ topics: [topicConfig.topic] });
 
-      const currentTopic = topicMetadata.topics.find(
-        (topicMetadata) => topicMetadata.name === topicConfig.topic,
-      );
+    const currentTopic = topicMetadata.topics.find(
+      (topicMetadata) => topicMetadata.name === topicConfig.topic,
+    );
 
-      if (!currentTopic) {
-        throw new Kafka.KafkaJSProtocolError('Topic not found')
-      }
+    if (!currentTopic) {
+      await this.#admin.createTopics({
+        topics: [topicConfig],
+        waitForLeaders: true,
+      });
 
-      if (topicConfig.numPartitions === currentTopic.partitions.length) {
-        return;
-      }
-
-      if ((topicConfig.numPartitions || 0) > currentTopic.partitions.length) {
-        await this.#admin.createPartitions({
-          topicPartitions: [
-            {
-              topic: topicConfig.topic,
-              count: topicConfig.numPartitions || 0,
-            },
-          ],
-        });
-        this.#logger.info(`Expanded partitions for ${topicConfig.topic} topic`);
-      } else {
-        throw new UnableDecreasePartitionsError();
-      }
-
-      this.#logger.info("Topics resolved successful");
-    } catch (e) {
-      if (e instanceof Kafka.KafkaJSProtocolError) {
-        await this.#admin.createTopics({
-          topics: [topicConfig],
-          waitForLeaders: true,
-        });
-      } else {
-        this.#logger.error(e, "Error from createTopic");
-        throw e;
-      }
+      return;
     }
+
+    if (topicConfig.numPartitions === currentTopic.partitions.length) {
+      return;
+    }
+
+    if ((topicConfig.numPartitions || 0) > currentTopic.partitions.length) {
+      await this.#admin.createPartitions({
+        topicPartitions: [
+          {
+            topic: topicConfig.topic,
+            count: topicConfig.numPartitions || 0,
+          },
+        ],
+      });
+      this.#logger.info(`Expanded partitions for ${topicConfig.topic} topic`);
+    } else {
+      throw new UnableDecreasePartitionsError();
+    }
+
+    this.#logger.info("Topics resolved successful");
   }
 
-  async sendSingleMessage(params: { topicName: KafkaTopicName, value: string, messageKey: KafkaMessageKey, headers: IHeaders  }) {
+  async sendSingleMessage(params: { topicName: KafkaTopicName, value: string, messageKey: KafkaMessageKey, headers: KTHeaders  }) {
     const { topicName, messageKey, value, headers } = params;
 
     await this.#producer.send({

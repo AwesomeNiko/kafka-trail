@@ -1,8 +1,7 @@
-import type { IHeaders } from "kafkajs";
-
 import type { KafkaTopicName , KafkaMessageKey } from "../libs/branded-types/kafka/index.js";
 import { ktDecode, ktEncode, type KTTopicPayloadParser } from "../libs/helpers/default-data-parser.js";
 
+import type { KTHeaders } from "./kafka-types.js";
 import type { DLQPayload , KTTopicEvent,  KTTopicSettings } from "./topic.js";
 import { DLQKTTopic  } from "./topic.js";
 
@@ -11,7 +10,7 @@ export type KTTopicBatchRawMessage = Array<Omit<KTTopicBatchMessage, 'value'> & 
 export type KTTopicBatchMessage = {
   value: string
   key: KafkaMessageKey
-  headers?: IHeaders & {
+  headers?: KTHeaders & {
     traceId?: string
   }
 }

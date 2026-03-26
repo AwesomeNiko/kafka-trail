@@ -1,28 +1,28 @@
-import type { CompressionTypes as KafkaCompressionTypes, KafkaConfig } from "kafkajs";
 import type pino from "pino";
 
 import type { lz4Codec } from "../codec/lz4-codec.js";
 import type { KafkaClientId } from "../libs/branded-types/kafka/index.js";
 
+import type { KTCompressionType, KTLz4CompressionType, KTPureKafkaConfig } from "./kafka-types.js";
 import { createKafkaRuntime } from "./runtime/runtime-factory.js";
 import type { KTRuntimeClient } from "./runtime/transport-types.js";
+
 type KTKafkaSettings = {
   brokerUrls: string[],
   clientId: KafkaClientId,
   connectionTimeout: number
-  runtime?: "kafkajs" | "confluent-kafkajs"
   compressionCodec?: {
-    codecType: KafkaCompressionTypes.LZ4,
+    codecType: KTLz4CompressionType,
     codecFn?: lz4Codec
   } | {
-    codecType: Exclude<KafkaCompressionTypes, KafkaCompressionTypes.LZ4>,
+    codecType: Exclude<KTCompressionType, KTLz4CompressionType>,
     codecFn?: never
   }
 }
 
 export type KafkaBrokerConfig = {
   kafkaSettings: KTKafkaSettings
-  pureConfig: Pick<KafkaConfig, "ssl" | "sasl" | "authenticationTimeout" | "reauthenticationThreshold" | "requestTimeout" | "enforceRequestTimeout" | "retry" | "socketFactory" | "logLevel" | "logCreator">
+  pureConfig: KTPureKafkaConfig
 }
 
 export type KafkaLogger = {

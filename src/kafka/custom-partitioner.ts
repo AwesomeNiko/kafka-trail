@@ -1,10 +1,10 @@
-import type {  PartitionerArgs } from "kafkajs";
+import type { KTCustomPartitionerArgs } from "./kafka-types.js";
 
 const roundRobin = () => {
   let msgNumber = 0
   const byNumber = roundRobinNumber()
 
-  return (params: PartitionerArgs) => {
+  return (params: KTCustomPartitionerArgs) => {
     if (params.message.key) {
       return byNumber(params)
     }
@@ -22,18 +22,16 @@ const roundRobin = () => {
 }
 
 const roundRobinNumber = () => {
-  return (params: PartitionerArgs) => {
-    if (Buffer.isBuffer(params.message.key)) {
-      params.message.key = params.message.key.toString();
-    }
-
-    const key = params.message.key
+  return (params: KTCustomPartitionerArgs) => {
+    const key = Buffer.isBuffer(params.message.key)
+      ? params.message.key.toString()
+      : params.message.key
 
     if (!key) {
       return 0
     }
 
-    const keyNumber = parseInt(key);
+    const keyNumber = parseInt(String(key));
 
     if (isNaN(keyNumber)) {
       return 0;

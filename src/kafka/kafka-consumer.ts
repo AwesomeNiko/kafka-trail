@@ -1,5 +1,3 @@
-import type { PartitionAssigner } from "kafkajs";
-import { PartitionAssigners } from "kafkajs";
 import type pino from "pino";
 
 import { ConsumerSubscribeError } from "../custom-errors/kafka-errors.js";
@@ -9,6 +7,7 @@ import { retry } from "../libs/helpers/retry.js";
 
 import type { KafkaWithLogger , KafkaBrokerConfig } from "./kafka-broker.js";
 import { KTKafkaBroker } from "./kafka-broker.js";
+import type { KTPartitionAssigner } from "./kafka-types.js";
 import type { KTRuntimeConsumer, KTRuntimeConsumerRunConfig, KTRuntimePartitionAssigner } from "./runtime/transport-types.js";
 
 export type KTKafkaConsumerConfig = {
@@ -27,7 +26,7 @@ export type KTKafkaConsumerConfig = {
     batchConsuming?: boolean
     rebalanceTimeout?: number;
     maxBytes?: number;
-    partitionAssignerFn? : PartitionAssigner
+    partitionAssignerFn? : KTPartitionAssigner
   }
 } & KafkaBrokerConfig
 
@@ -64,7 +63,6 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxBytes,
       partitionAssignerFn,
     } = params.kafkaSettings;
-    const runtime = params.kafkaSettings.runtime ?? "confluent-kafkajs"
 
     if (!consumerGroupId) {
       throw new Error("group id must be provided");
@@ -86,17 +84,10 @@ class KTKafkaConsumer extends KTKafkaBroker {
     const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
     const maxBytesParam = ifNanUseDefaultNumber(maxBytes, 10_485_760)
 
-    const isConfluentRuntime = runtime === "confluent-kafkajs"
-    const partitionsAssignersFunctions: KTRuntimePartitionAssigner[] = isConfluentRuntime
-      ? ["roundrobin"]
-      : [PartitionAssigners.roundRobin]
+    const partitionsAssignersFunctions: KTRuntimePartitionAssigner[] = ["roundrobin"]
 
     if (partitionAssignerFn) {
-      if (isConfluentRuntime) {
-        throw new Error("Custom partition assigners are not supported by the confluent-kafkajs runtime")
-      }
-
-      partitionsAssignersFunctions.unshift(partitionAssignerFn)
+      throw new Error("Custom partition assigners are not supported by the confluent runtime")
     }
 
     this.consumer = this._runtime.createConsumer({

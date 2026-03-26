@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach } from "@jest/globals";
-import { CompressionTypes } from "kafkajs";
 import { pino } from "pino";
 
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
+import { KTCompressionTypes } from "../kafka/kafka-types.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
 import { createKafkaMocks } from "./mocks/create-mocks.js";
@@ -69,7 +69,7 @@ describe("KafkaProducer test", () => {
     expect(sendMsgFn).toHaveBeenCalledTimes(1);
     expect(sendMsgFn).toHaveBeenCalledWith({
       topic: TOPIC_NAME,
-      compression: CompressionTypes.LZ4,
+      compression: KTCompressionTypes.LZ4,
       messages: [{
         key: MESSAGE_KEY,
         value: '1',
@@ -88,7 +88,7 @@ describe("KafkaProducer test", () => {
         clientId: KafkaClientId.fromString("producer-test-client-id"),
         connectionTimeout: 30_000,
         compressionCodec: {
-          codecType: CompressionTypes.GZIP,
+          codecType: KTCompressionTypes.GZIP,
         },
       },
       pureConfig: {},
@@ -107,7 +107,7 @@ describe("KafkaProducer test", () => {
     expect(sendMsgFn).toHaveBeenCalledTimes(1);
     expect(sendMsgFn).toHaveBeenCalledWith({
       topic: TOPIC_NAME,
-      compression: CompressionTypes.GZIP,
+      compression: KTCompressionTypes.GZIP,
       messages: [{
         key: MESSAGE_KEY,
         value: "1",

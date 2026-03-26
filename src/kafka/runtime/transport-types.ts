@@ -1,10 +1,9 @@
-import type { IHeaders, ITopicConfig, PartitionAssigner } from "kafkajs";
-
 import type { KafkaMessageKey, KafkaTopicName } from "../../libs/branded-types/kafka/index.js";
+import type { KTHeaders, KTPartitionAssigner, KTTopicConfig } from "../kafka-types.js";
 
-export type KTRuntimeTopicConfig = ITopicConfig
-export type KTRuntimeHeaders = IHeaders
-export type KTRuntimePartitionAssigner = PartitionAssigner | string
+export type KTRuntimeTopicConfig = KTTopicConfig
+export type KTRuntimeHeaders = KTHeaders
+export type KTRuntimePartitionAssigner = KTPartitionAssigner
 
 export type KTRuntimeTopicPartitionConfig = {
   topic: string

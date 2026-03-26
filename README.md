@@ -2,7 +2,7 @@
 
 A Node.js library for managing message queues with Kafka, designed to simplify creating, using, and managing Kafka topics with producers and consumers.
 
-### Based on [Kafkajs](https://kafka.js.org/)
+### Built on `@confluentinc/kafka-javascript` (`librdkafka`)
 
 ---
 
@@ -14,7 +14,7 @@ A Node.js library for managing message queues with Kafka, designed to simplify c
 - Create or use existing Kafka topics with specified partitions.
 - Initialize the message queue with minimal setup.
 - Setup consumer handlers
-- Compressing ([see](https://kafka.js.org/docs/producing#compression))
+- Compressing
 - Supports custom encoders/decoders.
 
 ---
@@ -277,13 +277,10 @@ process.on("SIGTERM", async () => {
 
 ### Compression codec
 By default, lib using LZ4 codec to compress and decompress data.
-You can override it, by passing via `KTKafkaSettings` type. Be careful - producer and consumer should have same codec.
-[Ref docs](https://kafka.js.org/docs/producing#compression). Example:
+You can override it, by passing via `KTKafkaSettings` type. Be careful - producer and consumer should have same codec. Example:
 
 ```typescript
-import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
-import { CompressionTypes } from "kafkajs";
-import lz4 from "lz4";
+import { KafkaClientId, KTCompressionTypes, KTMessageQueue } from "@awesomeniko/kafka-trail";
 
 // Instanciate messageQueue
 const kafkaBrokerUrls = ["localhost:19092"];
@@ -296,16 +293,7 @@ await messageQueue.initProducer({
     clientId: KafkaClientId.fromString('hostname'),
     connectionTimeout: 30_000,
     compressionCodec: {
-      codecType: CompressionTypes.LZ4,
-      codecFn: {
-        compress(encoder: Buffer) {
-          return lz4.encode(encoder);
-        },
-
-        decompress<T>(buffer: Buffer) {
-          return lz4.decode(buffer) as T;
-        },
-      },
+      codecType: KTCompressionTypes.LZ4,
     },
   },
   pureConfig: {},

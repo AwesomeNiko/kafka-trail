@@ -1,17 +1,12 @@
 import type { KafkaBrokerConfig } from "../kafka-broker.js";
 
-import { KTConfluentKafkaJSClientAdapter } from "./confluent-kafkajs-adapter.js";
-import { KTKafkaJSClientAdapter } from "./kafkajs-adapter.js";
+import { KTConfluentKafkaClientAdapter } from "./confluent-adapter.js";
 import type { KTRuntimeClient } from "./transport-types.js";
 
 type CreateKafkaRuntimeFn = (params: KafkaBrokerConfig) => KTRuntimeClient
 
 let createKafkaRuntimeImpl: CreateKafkaRuntimeFn = (params) => {
-  if (params.kafkaSettings.runtime === "kafkajs") {
-    return new KTKafkaJSClientAdapter(params)
-  }
-
-  return new KTConfluentKafkaJSClientAdapter(params)
+  return new KTConfluentKafkaClientAdapter(params)
 }
 
 const createKafkaRuntime = (params: KafkaBrokerConfig): KTRuntimeClient => {
@@ -24,11 +19,7 @@ const setKafkaRuntimeFactoryForTests = (fn: CreateKafkaRuntimeFn) => {
 
 const resetKafkaRuntimeFactoryForTests = () => {
   createKafkaRuntimeImpl = (params) => {
-    if (params.kafkaSettings.runtime === "kafkajs") {
-      return new KTKafkaJSClientAdapter(params)
-    }
-
-    return new KTConfluentKafkaJSClientAdapter(params)
+    return new KTConfluentKafkaClientAdapter(params)
   }
 }
 

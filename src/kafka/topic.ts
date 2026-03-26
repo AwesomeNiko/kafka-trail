@@ -1,4 +1,3 @@
-import type { IHeaders, ITopicConfig } from "kafkajs";
 import { v4 } from "uuid";
 
 import type { KafkaTopicName , KafkaMessageKey } from "../libs/branded-types/kafka/index.js";
@@ -6,7 +5,9 @@ import type { KTTopicPayloadParser } from "../libs/helpers/default-data-parser.j
 import { ktEncode , ktDecode  } from "../libs/helpers/default-data-parser.js";
 import { CreateDlqTopicName } from "../libs/helpers/topic-name.js";
 
-export type KTTopicSettings = ITopicConfig & {
+import type { KTHeaders, KTTopicConfig } from "./kafka-types.js";
+
+export type KTTopicSettings = KTTopicConfig & {
   topic: KafkaTopicName
   batchMessageSizeToConsume: number
   numPartitions: number
@@ -20,7 +21,7 @@ export type KTTopicPayload = {
 }
 
 type KTTopicMeta = {
-  meta: IHeaders & {
+  meta: KTHeaders & {
     traceId?: string
   }
 }

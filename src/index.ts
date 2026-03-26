@@ -1,6 +1,7 @@
 import { ConsumerSubscribeError, KTRetryError, NoHandlersError, UnableDecreasePartitionsError, ArgumentIsRequired, ProducerNotInitializedError, ProducerInitRequiredForDLQError } from "./custom-errors/kafka-errors.js"
 import { KTHandler } from "./kafka/consumer-handler.js";
 import { CustomPartitioner } from "./kafka/custom-partitioner.js";
+import { KTCompressionTypes } from "./kafka/kafka-types.js";
 import { KTTopicBatch, CreateKTTopicBatch } from "./kafka/topic-batch.js"
 import { KTTopic, CreateKTTopic, DLQKTTopic } from "./kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "./libs/branded-types/kafka/index.js";
@@ -11,6 +12,15 @@ import { KTSchemaRegistryError, KTSchemaValidationError } from "./libs/schema/sc
 import { KTMessageQueue } from "./message-queue/index.js";
 
 export type { KTPayloadFromTopic, KTTopicEvent } from "./kafka/topic.js"
+export type {
+  KTCompressionType,
+  KTHeaders,
+  KTTopicConfig,
+  KTPureKafkaConfig,
+  KTCustomPartitioner,
+  KTCustomPartitionerArgs,
+  KTPartitionAssigner,
+} from "./kafka/kafka-types.js"
 export type { KTCodec, KTSchemaMeta } from "./libs/schema/schema-codec.js"
 export type {
   AjvValidateLike,
@@ -51,6 +61,7 @@ export {
   ArgumentIsRequired,
   ProducerNotInitializedError,
   ProducerInitRequiredForDLQError,
+  KTCompressionTypes,
   CustomPartitioner,
   CreateKTTopic,
   CreateKTTopicBatch,
