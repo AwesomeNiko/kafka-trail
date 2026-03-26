@@ -34,7 +34,6 @@ describe("KafkaConsumer subscribe config", () => {
     expect(consumerSubscribe).toHaveBeenCalledTimes(1);
     expect(consumerSubscribe).toHaveBeenCalledWith({
       topics: [topicName],
-      fromBeginning: true,
     });
   });
 
@@ -57,7 +56,6 @@ describe("KafkaConsumer subscribe config", () => {
     expect(consumerSubscribe).toHaveBeenCalledTimes(1);
     expect(consumerSubscribe).toHaveBeenCalledWith({
       topics: [topicName],
-      fromBeginning: true,
     });
   });
 });

@@ -6,9 +6,73 @@ import { ifNanUseDefaultNumber } from "../libs/helpers/castings.js";
 import { retry } from "../libs/helpers/retry.js";
 
 import type { KafkaWithLogger , KafkaBrokerConfig } from "./kafka-broker.js";
-import { KTKafkaBroker } from "./kafka-broker.js";
-import type { KTPartitionAssigner } from "./kafka-types.js";
-import type { KTRuntimeConsumer, KTRuntimeConsumerRunConfig, KTRuntimePartitionAssigner } from "./runtime/transport-types.js";
+import { KafkaJS, KTKafkaBroker } from "./kafka-broker.js";
+import type { KTConsumerRunConfig, KTPartitionAssigner } from "./kafka-types.js";
+
+type ConfluentConsumerConstructorConfig = NonNullable<Parameters<InstanceType<typeof KafkaJS.Kafka>["consumer"]>[0]>
+type ConfluentKafkaJSConsumerConfig = NonNullable<ConfluentConsumerConstructorConfig["kafkaJS"]>
+type ConfluentEachMessagePayload = {
+  topic: string
+  partition: number
+  message: {
+    key: Buffer | null
+    value: Buffer | null
+    offset: string
+  }
+  heartbeat: () => Promise<void>
+}
+type ConfluentEachBatchPayload = {
+  batch: {
+    topic: string
+    partition: number
+    messages: Array<{
+      key: Buffer | null
+      value: Buffer | null
+      offset: string
+    }>
+  }
+  heartbeat: () => Promise<void>
+  resolveOffset: (offset: string) => void
+}
+type ConfluentConsumerLike = ReturnType<InstanceType<typeof KafkaJS.Kafka>["consumer"]> & {
+  subscribe: (params: { topics: string[] }) => Promise<void>
+  run: (config: {
+    partitionsConsumedConcurrently?: number
+    eachBatchAutoResolve?: boolean
+    eachMessage?: (payload: ConfluentEachMessagePayload) => Promise<void>
+    eachBatch?: (payload: ConfluentEachBatchPayload) => Promise<void>
+  }) => Promise<void>
+}
+
+const ensureSupportedPartitionAssigners = (partitionAssigners: KTPartitionAssigner[]) => {
+  const supportedAssigners = new Set(["roundrobin", "range", "cooperative-sticky"])
+
+  for (const partitionAssigner of partitionAssigners) {
+    if (typeof partitionAssigner !== "string" || !supportedAssigners.has(partitionAssigner)) {
+      throw new Error("Custom partition assigners are not supported by the confluent runtime")
+    }
+  }
+}
+
+const toConfluentPartitionAssigners = (
+  partitionAssigners: KTPartitionAssigner[],
+): Array<
+  typeof KafkaJS.PartitionAssigners.roundRobin
+  | typeof KafkaJS.PartitionAssigners.range
+  | typeof KafkaJS.PartitionAssigners.cooperativeSticky
+> => {
+  return partitionAssigners.map((partitionAssigner) => {
+    if (partitionAssigner === "roundrobin") {
+      return KafkaJS.PartitionAssigners.roundRobin
+    }
+
+    if (partitionAssigner === "range") {
+      return KafkaJS.PartitionAssigners.range
+    }
+
+    return KafkaJS.PartitionAssigners.cooperativeSticky
+  })
+}
 
 export type KTKafkaConsumerConfig = {
   kafkaSettings: {
@@ -35,7 +99,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
   #logger: pino.Logger;
   heartBeatInterval: number;
 
-  consumer: KTRuntimeConsumer
+  consumer: ConfluentConsumerLike
 
   #subscribeRetry = {
     interval: 2000,
@@ -84,26 +148,37 @@ class KTKafkaConsumer extends KTKafkaBroker {
     const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
     const maxBytesParam = ifNanUseDefaultNumber(maxBytes, 10_485_760)
 
-    const partitionsAssignersFunctions: KTRuntimePartitionAssigner[] = ["roundrobin"]
+    const partitionsAssignersFunctions: KTPartitionAssigner[] = ["roundrobin"]
 
     if (partitionAssignerFn) {
       throw new Error("Custom partition assigners are not supported by the confluent runtime")
     }
 
-    this.consumer = this._runtime.createConsumer({
+    ensureSupportedPartitionAssigners(partitionsAssignersFunctions)
+
+    const kafkaJSConsumerConfig: ConfluentKafkaJSConsumerConfig = {
       groupId: consumerGroupId,
       allowAutoTopicCreation: false,
       heartbeatInterval: this.heartBeatInterval,
       sessionTimeout: sessionTimeoutParam,
       maxWaitTimeInMs: maxWaitTimeInMsParam,
-      maxBytesPerPartition:maxBytesPerPartitionParam,
+      maxBytesPerPartition: maxBytesPerPartitionParam,
       maxInFlightRequests: maxInFlightRequestsParam,
       rebalanceTimeout: rebalanceTimeoutParam,
-      partitionAssigners: partitionsAssignersFunctions,
+      partitionAssigners: toConfluentPartitionAssigners(partitionsAssignersFunctions),
       maxBytes: maxBytesParam,
       fromBeginning: this.#subscribeFromBeginning,
-      batchConsuming: params.kafkaSettings.batchConsuming ?? false,
-    });
+    }
+
+    const consumerConfig: ConfluentConsumerConstructorConfig = {
+      kafkaJS: kafkaJSConsumerConfig,
+    }
+
+    if (params.kafkaSettings.batchConsuming) {
+      consumerConfig["js.consumer.max.batch.size"] = -1
+    }
+
+    this.consumer = this._kafka.consumer(consumerConfig) as ConfluentConsumerLike;
   }
 
   isConnected() {
@@ -118,7 +193,13 @@ class KTKafkaConsumer extends KTKafkaBroker {
   }
 
   async destroy() {
-    await this.consumer.stop();
+    await this.consumer.stop().catch((err: unknown) => {
+      if (err instanceof Error && err.message === "Not implemented") {
+        return;
+      }
+
+      throw err;
+    });
     this.#isConnected = false;
 
     await this.consumer.disconnect();
@@ -129,7 +210,6 @@ class KTKafkaConsumer extends KTKafkaBroker {
       async () =>
         await this.consumer.subscribe({
           topics,
-          fromBeginning: this.#subscribeFromBeginning,
         }),
       this.#logger,
       {
@@ -143,8 +223,46 @@ class KTKafkaConsumer extends KTKafkaBroker {
     }
   }
 
-  async run(config: KTRuntimeConsumerRunConfig) {
-    await this.consumer.run(config)
+  async run(config: KTConsumerRunConfig) {
+    if (config.mode === "eachMessage") {
+      await this.consumer.run({
+        partitionsConsumedConcurrently: config.partitionsConsumedConcurrently,
+        eachMessage: async (payload: ConfluentEachMessagePayload) => {
+          await config.eachMessage({
+            topic: payload.topic,
+            partition: payload.partition,
+            message: {
+              key: payload.message.key,
+              value: payload.message.value,
+              offset: payload.message.offset,
+            },
+            heartbeat: () => payload.heartbeat(),
+          })
+        },
+      })
+
+      return
+    }
+
+    await this.consumer.run({
+      eachBatchAutoResolve: config.eachBatchAutoResolve,
+      partitionsConsumedConcurrently: config.partitionsConsumedConcurrently,
+      eachBatch: async (payload: ConfluentEachBatchPayload) => {
+        await config.eachBatch({
+          batch: {
+            topic: payload.batch.topic,
+            partition: payload.batch.partition,
+            messages: payload.batch.messages.map((message) => ({
+              key: message.key,
+              value: message.value,
+              offset: message.offset,
+            })),
+          },
+          heartbeat: () => payload.heartbeat(),
+          resolveOffset: (offset: string) => payload.resolveOffset(offset),
+        })
+      },
+    })
   }
 }
 

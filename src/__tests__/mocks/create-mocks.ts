@@ -1,7 +1,7 @@
 import { jest } from "@jest/globals";
 
-import { resetKafkaRuntimeFactoryForTests, setKafkaRuntimeFactoryForTests } from "../../kafka/runtime/runtime-factory.js";
-import type { KTRuntimeAdmin, KTRuntimeConsumer, KTRuntimeProducer, KTRuntimeTopicConfig, KTRuntimeTopicMetadata, KTRuntimeConsumerRunConfig } from "../../kafka/runtime/transport-types.js";
+import { resetKafkaClientFactoryForTests, setKafkaClientFactoryForTests, setLowLevelAdminFactoryForTests, setLowLevelAdminFromProducerFactoryForTests } from "../../kafka/kafka-broker.js";
+import type { KTConsumerRunConfig, KTTopicConfig, KTTopicMetadata } from "../../kafka/kafka-types.js";
 
 const createKafkaMocks = ({
   topicName = "test-topic-name",
@@ -15,8 +15,13 @@ const createKafkaMocks = ({
   const kafkaConsumerConnectFn = jest.fn<() => Promise<void>>();
   const kafkaConsumerDisconnectFn = jest.fn<() => Promise<void>>();
   const kafkaConsumerStopFn = jest.fn<() => Promise<void>>();
+  const kafkaLowLevelAdminDisconnectFn = jest.fn<() => void>();
+  const kafkaLowLevelCreatePartitionsFn = jest.fn<(topic: string, desiredPartitions: number, timeout?: number, cb?: (err?: Error) => void) => void>()
+    .mockImplementation((_topic, _desiredPartitions, _timeout, cb) => {
+      cb?.()
+    });
 
-  const fetchTopicMetadataFn = jest.fn<(options: { topics: string[] }) => Promise<{ topics: KTRuntimeTopicMetadata[] }>>().mockImplementation(({ topics }) => {
+  const fetchTopicMetadataFn = jest.fn<(options: { topics: string[] }) => Promise<{ topics: KTTopicMetadata[] }>>().mockImplementation(({ topics }) => {
     if (!topics.includes(topicName)) {
       return Promise.reject(new Error("Topic not found"))
     }
@@ -29,11 +34,11 @@ const createKafkaMocks = ({
     })
   });
   const createPartitionsFn = jest.fn<(options: { topicPartitions: Array<{ topic: string, count: number }> }) => Promise<boolean>>();
-  const createTopicsFn = jest.fn<(options: { topics: KTRuntimeTopicConfig[], waitForLeaders?: boolean }) => Promise<boolean>>();
-  const consumerSubscribe = jest.fn<(subscription: { topics: string[], fromBeginning: boolean }) => Promise<void>>();
-  const sendMsgFn = jest.fn<(record: { topic: string, compression: unknown, messages: Array<{ key: string | null, value: string, headers?: Record<string, unknown> }> }) => Promise<unknown>>();
+  const createTopicsFn = jest.fn<(options: { topics: KTTopicConfig[], waitForLeaders?: boolean }) => Promise<boolean>>();
+  const consumerSubscribe = jest.fn<(subscription: { topics: string[] }) => Promise<void>>();
+  const sendMsgFn = jest.fn<(record: { topic: string, messages: Array<{ key: string | null, value: string, headers?: Record<string, unknown> }> }) => Promise<unknown>>();
 
-  const consumerRun = jest.fn<(config: KTRuntimeConsumerRunConfig) => Promise<void>>().mockImplementation(async (config) => {
+  const consumerRun = jest.fn<(config: KTConsumerRunConfig) => Promise<void>>().mockImplementation(async (config) => {
     const messages = payloadToRun.map((v, idx) => ({
       key: null,
       value: Buffer.from(JSON.stringify(v)),
@@ -72,7 +77,7 @@ const createKafkaMocks = ({
     return Promise.resolve()
   });
 
-  const adminMock: KTRuntimeAdmin = {
+  const adminMock = {
     connect: kafkaAdminConnectFn,
     disconnect: kafkaAdminDisconnectFn,
     fetchTopicMetadata: fetchTopicMetadataFn,
@@ -80,13 +85,15 @@ const createKafkaMocks = ({
     createTopics: createTopicsFn,
   };
 
-  const producerMock: KTRuntimeProducer = {
+  const producerMock = {
     connect: kafkaProducerConnectFn,
     disconnect: kafkaProducerDisconnectFn,
+    dependentAdmin: () => adminMock,
+    _getInternalClient: () => ({}),
     send: sendMsgFn,
   };
 
-  const consumerMock: KTRuntimeConsumer = {
+  const consumerMock = {
     connect: kafkaConsumerConnectFn,
     disconnect: kafkaConsumerDisconnectFn,
     stop: kafkaConsumerStopFn,
@@ -94,21 +101,30 @@ const createKafkaMocks = ({
     run: consumerRun,
   };
 
-  const createAdminMock = jest.fn<() => KTRuntimeAdmin>(() => adminMock);
-  const createProducerMock = jest.fn<() => KTRuntimeProducer>(() => producerMock);
-  const createConsumerMock = jest.fn<() => KTRuntimeConsumer>(() => consumerMock);
+  const createAdminMock = jest.fn(() => adminMock);
+  const createProducerMock = jest.fn(() => producerMock);
+  const createConsumerMock = jest.fn(() => consumerMock);
 
-  const createKafkaRuntimeMock = jest.fn(() => ({
+  const createKafkaClientMock = jest.fn(() => ({
     createAdmin: createAdminMock,
     createProducer: createProducerMock,
     createConsumer: createConsumerMock,
+    admin: createAdminMock,
+    producer: createProducerMock,
+    consumer: createConsumerMock,
   }));
+  const lowLevelAdminMock = {
+    disconnect: kafkaLowLevelAdminDisconnectFn,
+    createPartitions: kafkaLowLevelCreatePartitionsFn,
+  }
 
-  setKafkaRuntimeFactoryForTests(() => createKafkaRuntimeMock());
+  setKafkaClientFactoryForTests(() => createKafkaClientMock() as never);
+  setLowLevelAdminFactoryForTests(() => lowLevelAdminMock);
+  setLowLevelAdminFromProducerFactoryForTests(() => lowLevelAdminMock);
 
   const clearAll = () => {
-    resetKafkaRuntimeFactoryForTests()
-    createKafkaRuntimeMock.mockClear()
+    resetKafkaClientFactoryForTests()
+    createKafkaClientMock.mockClear()
     createAdminMock.mockClear()
     createProducerMock.mockClear()
     createConsumerMock.mockClear()
@@ -119,13 +135,15 @@ const createKafkaMocks = ({
     kafkaProducerConnectFn,
     kafkaConsumerConnectFn,
     kafkaConsumerStopFn,
+    kafkaLowLevelAdminDisconnectFn,
+    kafkaLowLevelCreatePartitionsFn,
     fetchTopicMetadataFn,
     createPartitionsFn,
     createTopicsFn,
     consumerSubscribe,
     consumerRun,
     sendMsgFn,
-    createKafkaRuntimeMock,
+    createKafkaClientMock,
     createAdminMock,
     createProducerMock,
     createConsumerMock,

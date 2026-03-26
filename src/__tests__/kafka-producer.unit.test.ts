@@ -69,7 +69,6 @@ describe("KafkaProducer test", () => {
     expect(sendMsgFn).toHaveBeenCalledTimes(1);
     expect(sendMsgFn).toHaveBeenCalledWith({
       topic: TOPIC_NAME,
-      compression: KTCompressionTypes.LZ4,
       messages: [{
         key: MESSAGE_KEY,
         value: '1',
@@ -107,7 +106,6 @@ describe("KafkaProducer test", () => {
     expect(sendMsgFn).toHaveBeenCalledTimes(1);
     expect(sendMsgFn).toHaveBeenCalledWith({
       topic: TOPIC_NAME,
-      compression: KTCompressionTypes.GZIP,
       messages: [{
         key: MESSAGE_KEY,
         value: "1",

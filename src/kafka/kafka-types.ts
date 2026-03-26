@@ -61,3 +61,56 @@ export type KTCustomPartitionerArgs = {
 export type KTCustomPartitioner = () => (params: KTCustomPartitionerArgs) => number
 
 export type KTPartitionAssigner = "roundrobin" | "range" | "cooperative-sticky" | ((...args: never[]) => unknown)
+
+export type KTTopicPartitionConfig = {
+  topic: string
+  count: number
+}
+
+export type KTTopicMetadata = {
+  name: string
+  partitions: Array<{
+    partitionId: number
+  }>
+}
+
+export type KTReceivedMessage = {
+  key: Buffer | string | null | undefined
+  value: Buffer | string | null | undefined
+  offset: string
+}
+
+export type KTEachMessagePayload = {
+  topic: string
+  partition: number
+  message: KTReceivedMessage
+  heartbeat: () => Promise<void>
+}
+
+export type KTBatch = {
+  topic: string
+  partition: number
+  messages: KTReceivedMessage[]
+}
+
+export type KTEachBatchPayload = {
+  batch: KTBatch
+  heartbeat: () => Promise<void>
+  resolveOffset: (offset: string) => void
+}
+
+export type KTEachMessageHandler = (payload: KTEachMessagePayload) => Promise<void>
+export type KTEachBatchHandler = (payload: KTEachBatchPayload) => Promise<void>
+
+export type KTConsumerRunConfig =
+  | {
+    mode: "eachMessage"
+    partitionsConsumedConcurrently: number
+    eachMessage: KTEachMessageHandler
+  }
+  | {
+    mode: "eachBatch"
+    eachBatchAutoResolve: boolean
+    partitionsConsumedConcurrently: number
+    eachBatch: KTEachBatchHandler
+  }
