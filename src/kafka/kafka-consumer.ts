@@ -44,36 +44,6 @@ type ConfluentConsumerLike = ReturnType<InstanceType<typeof KafkaJS.Kafka>["cons
   }) => Promise<void>
 }
 
-const ensureSupportedPartitionAssigners = (partitionAssigners: KTPartitionAssigner[]) => {
-  const supportedAssigners = new Set(["roundrobin", "range", "cooperative-sticky"])
-
-  for (const partitionAssigner of partitionAssigners) {
-    if (typeof partitionAssigner !== "string" || !supportedAssigners.has(partitionAssigner)) {
-      throw new Error("Custom partition assigners are not supported by the confluent runtime")
-    }
-  }
-}
-
-const toConfluentPartitionAssigners = (
-  partitionAssigners: KTPartitionAssigner[],
-): Array<
-  typeof KafkaJS.PartitionAssigners.roundRobin
-  | typeof KafkaJS.PartitionAssigners.range
-  | typeof KafkaJS.PartitionAssigners.cooperativeSticky
-> => {
-  return partitionAssigners.map((partitionAssigner) => {
-    if (partitionAssigner === "roundrobin") {
-      return KafkaJS.PartitionAssigners.roundRobin
-    }
-
-    if (partitionAssigner === "range") {
-      return KafkaJS.PartitionAssigners.range
-    }
-
-    return KafkaJS.PartitionAssigners.cooperativeSticky
-  })
-}
-
 export type KTKafkaConsumerConfig = {
   kafkaSettings: {
     consumerGroupId: string;
@@ -148,13 +118,9 @@ class KTKafkaConsumer extends KTKafkaBroker {
     const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
     const maxBytesParam = ifNanUseDefaultNumber(maxBytes, 10_485_760)
 
-    const partitionsAssignersFunctions: KTPartitionAssigner[] = ["roundrobin"]
-
     if (partitionAssignerFn) {
       throw new Error("Custom partition assigners are not supported by the confluent runtime")
     }
-
-    ensureSupportedPartitionAssigners(partitionsAssignersFunctions)
 
     const kafkaJSConsumerConfig: ConfluentKafkaJSConsumerConfig = {
       groupId: consumerGroupId,
@@ -165,7 +131,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
       maxBytesPerPartition: maxBytesPerPartitionParam,
       maxInFlightRequests: maxInFlightRequestsParam,
       rebalanceTimeout: rebalanceTimeoutParam,
-      partitionAssigners: toConfluentPartitionAssigners(partitionsAssignersFunctions),
+      partitionAssigners: [KafkaJS.PartitionAssigners.roundRobin],
       maxBytes: maxBytesParam,
       fromBeginning: this.#subscribeFromBeginning,
     }
