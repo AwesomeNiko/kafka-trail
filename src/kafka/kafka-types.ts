@@ -1,0 +1,63 @@
+import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+
+export const KTCompressionTypes = {
+  None: 0,
+  GZIP: 1,
+  Snappy: 2,
+  LZ4: 3,
+  ZSTD: 4,
+} as const;
+
+export type KTCompressionType = typeof KTCompressionTypes[keyof typeof KTCompressionTypes]
+export type KTLz4CompressionType = typeof KTCompressionTypes.LZ4
+
+export type KTHeaderValue = string | Buffer | Array<string | Buffer> | undefined
+export type KTHeaders = Record<string, KTHeaderValue>
+
+export type KTTopicConfigEntry = {
+  name: string
+  value: string
+}
+
+export type KTTopicConfig = {
+  topic: KafkaTopicName
+  numPartitions?: number
+  replicationFactor?: number
+  configEntries?: KTTopicConfigEntry[]
+}
+
+export type KTRetryConfig = {
+  initialRetryTime?: number
+  retries?: number
+  factor?: number
+  multiplier?: number
+  maxRetryTime?: number
+}
+
+export type KTPureKafkaConfig = {
+  ssl?: boolean | object
+  sasl?: Record<string, unknown>
+  authenticationTimeout?: number
+  reauthenticationThreshold?: number
+  requestTimeout?: number
+  enforceRequestTimeout?: boolean
+  retry?: KTRetryConfig
+  socketFactory?: unknown
+  logLevel?: unknown
+  logCreator?: unknown
+}
+
+export type KTPartitionMetadata = {
+  partitionId: number
+}
+
+export type KTCustomPartitionerArgs = {
+  message: {
+    key: KafkaMessageKey | Buffer | null | undefined
+  }
+  partitionMetadata: KTPartitionMetadata[]
+}
+
+export type KTCustomPartitioner = () => (params: KTCustomPartitionerArgs) => number
+
+export type KTPartitionAssigner = "roundrobin" | "range" | "cooperative-sticky" | ((...args: never[]) => unknown)
