@@ -1,106 +1,178 @@
-import { createRequire } from "node:module";
-
-import ConfluentKafka from "@confluentinc/kafka-javascript";
 import type pino from "pino";
 
 import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.js";
 import type { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
-import type { KafkaBrokerConfig, KafkaWithLogger } from "./kafka-broker.js";
-import { KafkaJS, KTKafkaBroker, toConfluentCommonConfig } from "./kafka-broker.js";
+import { CODES, KTKafkaBroker, rdKafkaFactories, type Producer, type KafkaBrokerConfig, type KafkaWithLogger, type RdKafkaGlobalConfig } from "./kafka-broker.js";
 import { KTCompressionTypes, type KTCustomPartitioner, type KTHeaders, type KTTopicConfig, type KTTopicMetadata } from "./kafka-types.js";
 import type { KTTopicBatchPayload } from "./topic-batch.js";
-
-const { AdminClient, CODES } = ConfluentKafka
-const require = createRequire(import.meta.url)
-const { kafkaJSToRdKafkaConfig } = require("@confluentinc/kafka-javascript/lib/kafkajs/_common.js") as {
-  kafkaJSToRdKafkaConfig: (config: Record<string, unknown>) => Record<string, unknown>
-}
-
-type ConfluentAdminLike = ReturnType<InstanceType<typeof KafkaJS.Kafka>["admin"]>
-type ConfluentLowLevelAdminClient = {
-  createPartitions: (topic: string, desiredPartitions: number, timeout?: number, cb?: (err?: Error) => void) => void
-  disconnect: () => void
-}
-type ConfluentProducerLike = ReturnType<InstanceType<typeof KafkaJS.Kafka>["producer"]> & {
-  dependentAdmin: () => ConfluentAdminLike
-  _getInternalClient: () => unknown
-}
 
 type KTKafkaProducerConfig = {
   createPartitioner?: KTCustomPartitioner
 } & KafkaBrokerConfig
 
-const asConfluentCompression = (
-  compression: unknown,
-): typeof KafkaJS.CompressionTypes[keyof typeof KafkaJS.CompressionTypes] | undefined => {
+type RdKafkaAdminClient = {
+  disconnect: () => void
+  createPartitions: (topic: string, desiredPartitions: number, timeout?: number, cb?: (err?: unknown) => void) => void
+  createTopic: (topic: {
+    topic: string
+    num_partitions: number
+    replication_factor: number
+    config: Record<string, string>
+  }, timeout?: number, cb?: (err?: unknown) => void) => void
+}
+
+type RdKafkaMessageHeader = Record<string, string | Buffer>
+
+type ProducerDeliveryOpaque = {
+  resolve: () => void
+  reject: (error: Error) => void
+}
+
+const asRdKafkaCompression = (compression: unknown): string | undefined => {
   if (compression === undefined || compression === null) {
     return undefined
   }
 
   if (compression === KTCompressionTypes.None || compression === "none") {
-    return KafkaJS.CompressionTypes.None
+    return "none"
   }
 
   if (compression === KTCompressionTypes.GZIP || compression === "gzip") {
-    return KafkaJS.CompressionTypes.GZIP
+    return "gzip"
   }
 
   if (compression === KTCompressionTypes.Snappy || compression === "snappy") {
-    return KafkaJS.CompressionTypes.Snappy
+    return "snappy"
   }
 
   if (compression === KTCompressionTypes.LZ4 || compression === "lz4") {
-    return KafkaJS.CompressionTypes.LZ4
+    return "lz4"
   }
 
   if (compression === KTCompressionTypes.ZSTD || compression === "zstd") {
-    return KafkaJS.CompressionTypes.ZSTD
+    return "zstd"
   }
 
   throw new Error("Unsupported compression codec for the confluent runtime")
 }
 
+const toRdKafkaHeaders = (headers: KTHeaders): RdKafkaMessageHeader[] | undefined => {
+  const mappedHeaders: RdKafkaMessageHeader[] = []
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (value === undefined) {
+      continue
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        mappedHeaders.push({ [key]: item })
+      }
+
+      continue
+    }
+
+    mappedHeaders.push({ [key]: value })
+  }
+
+  if (mappedHeaders.length === 0) {
+    return undefined
+  }
+
+  return mappedHeaders
+}
+
+const connectProducer = async (producer: InstanceType<typeof Producer>) => {
+  await new Promise<void>((resolve, reject) => {
+    producer.connect(undefined, (err) => {
+      if (err) {
+        reject(err as unknown as Error)
+
+        return
+      }
+
+      resolve()
+    })
+  })
+}
+
+const disconnectProducer = async (producer: InstanceType<typeof Producer>) => {
+  await new Promise<void>((resolve, reject) => {
+    producer.disconnect((err) => {
+      if (err) {
+        reject(err as unknown as Error)
+
+        return
+      }
+
+      resolve()
+    })
+  })
+}
+
+const fetchTopicMetadata = async (
+  producer: InstanceType<typeof Producer>,
+  topic: string,
+): Promise<KTTopicMetadata | null> => {
+  return await new Promise<KTTopicMetadata | null>((resolve, reject) => {
+    producer.getMetadata({
+      topic,
+      timeout: 30_000,
+    }, (err, metadata) => {
+      if (err) {
+        const errorCode = (err as { code?: unknown }).code
+
+        if (errorCode === CODES.ERRORS.ERR__UNKNOWN_TOPIC || errorCode === CODES.ERRORS.ERR_UNKNOWN_TOPIC_OR_PART) {
+          resolve(null)
+
+          return
+        }
+
+        reject(err as unknown as Error)
+
+        return
+      }
+
+      const topicMetadata = metadata.topics.find((item) => item.name === topic)
+
+      if (!topicMetadata) {
+        resolve(null)
+
+        return
+      }
+
+      resolve({
+        name: topicMetadata.name,
+        partitions: topicMetadata.partitions.map((partition) => ({
+          partitionId: partition.id,
+        })),
+      })
+    })
+  })
+}
+
 class KTKafkaProducer extends KTKafkaBroker {
-  #producer: ConfluentProducerLike;
-  #admin: ConfluentAdminLike;
-  #lowLevelAdmin: ConfluentLowLevelAdminClient | null = null;
+  #producer: InstanceType<typeof Producer> | null = null;
+  #admin: RdKafkaAdminClient | null = null;
   #logger: pino.Logger;
-  #adminDependsOnProducer: boolean;
-  #params: KafkaBrokerConfig;
+  #producerConfig: RdKafkaGlobalConfig;
 
   constructor(params: KafkaWithLogger<KTKafkaProducerConfig>) {
     super(params);
 
     const { createPartitioner, logger } = params;
-    this.#params = params
 
     if (createPartitioner) {
       throw new Error("Custom partitioners are not supported by the confluent runtime")
     }
 
-    const producerConfig: {
-      kafkaJS: {
-        allowAutoTopicCreation: false
-        compression?: typeof KafkaJS.CompressionTypes[keyof typeof KafkaJS.CompressionTypes]
-      }
-    } = {
-      kafkaJS: {
-        allowAutoTopicCreation: false,
-      },
+    this.#producerConfig = {
+      ...this._globalConfig,
+      "dr_cb": true,
+      "compression.codec": asRdKafkaCompression(params.kafkaSettings.compressionCodec?.codecType ?? KTCompressionTypes.LZ4),
     }
-    const confluentCompression = asConfluentCompression(params.kafkaSettings.compressionCodec?.codecType ?? KTCompressionTypes.LZ4)
-
-    if (confluentCompression) {
-      producerConfig.kafkaJS.compression = confluentCompression
-    }
-
-    this.#producer = this._kafka.producer(producerConfig) as unknown as ConfluentProducerLike;
-    const dependentAdmin = this.#producer.dependentAdmin?.()
-
-    this.#admin = dependentAdmin ?? this._kafka.admin();
-    this.#logger = logger;
-    this.#adminDependsOnProducer = Boolean(dependentAdmin)
+    this.#logger = logger
   }
 
   getAdmin() {
@@ -108,57 +180,72 @@ class KTKafkaProducer extends KTKafkaBroker {
   }
 
   async init() {
-    if (this.#adminDependsOnProducer) {
-      await this.#producer.connect()
-      await this.#admin.connect()
-      this.#lowLevelAdmin = AdminClient.createFrom(
-        this.#producer._getInternalClient() as never,
-      ) as ConfluentLowLevelAdminClient
+    this.#producer = rdKafkaFactories.createProducer(this.#producerConfig)
+    this.#producer.setPollInterval(50)
+    this.#producer.on("delivery-report", (err, report) => {
+      const opaque = report.opaque as ProducerDeliveryOpaque | undefined
 
-      return
-    }
+      if (!opaque) {
+        return
+      }
 
-    await Promise.all([this.#admin.connect(), this.#producer.connect()]);
+      if (err) {
+        opaque.reject(err as unknown as Error)
 
-    const commonConfig = toConfluentCommonConfig(this.#params)
-    const adminConfig = kafkaJSToRdKafkaConfig(commonConfig as unknown as Record<string, unknown>)
-    this.#lowLevelAdmin = AdminClient.create(adminConfig) as ConfluentLowLevelAdminClient
+        return
+      }
+
+      opaque.resolve()
+    })
+    this.#admin = rdKafkaFactories.createAdminClient(this._globalConfig) as RdKafkaAdminClient
+
+    await connectProducer(this.#producer)
   }
 
   async destroy() {
-    if (this.#adminDependsOnProducer) {
-      this.#lowLevelAdmin?.disconnect()
-      this.#lowLevelAdmin = null
-      await this.#admin.disconnect()
-      await this.#producer.disconnect()
+    this.#admin?.disconnect()
+    this.#admin = null
 
-      return
+    if (this.#producer) {
+      await disconnectProducer(this.#producer)
+      this.#producer = null
     }
-
-    this.#lowLevelAdmin?.disconnect()
-    this.#lowLevelAdmin = null
-
-    await Promise.all([this.#admin.disconnect(), this.#producer.disconnect()]);
   }
 
   async createTopic(topicConfig: KTTopicConfig): Promise<void> {
+    const producer = this.#producer
+    const admin = this.#admin
+
+    if (!producer || !admin) {
+      throw new Error("Producer is not initialized")
+    }
+
     this.#logger.info({
       topicName: topicConfig.topic,
       topicConfig,
     }, "Resolving topics...");
 
-    const topicMetadata = await this.#fetchTopicMetadata({ topics: [topicConfig.topic] });
-
-    const currentTopic = topicMetadata.topics.find(
-      (topicMetadata) => topicMetadata.name === topicConfig.topic,
-    );
+    const currentTopic = await fetchTopicMetadata(producer, topicConfig.topic)
 
     if (!currentTopic) {
-      await this.#admin.createTopics({
-        topics: [topicConfig],
-      });
+      await new Promise<void>((resolve, reject) => {
+        admin.createTopic({
+          topic: topicConfig.topic,
+          num_partitions: topicConfig.numPartitions || 1,
+          replication_factor: topicConfig.replicationFactor || 1,
+          config: Object.fromEntries((topicConfig.configEntries || []).map((entry) => [entry.name, entry.value])),
+        }, 30_000, (err: unknown) => {
+          if (err) {
+            reject(err as unknown as Error)
 
-      return;
+            return
+          }
+
+          resolve()
+        })
+      })
+
+      return
     }
 
     if (topicConfig.numPartitions === currentTopic.partitions.length) {
@@ -185,61 +272,74 @@ class KTKafkaProducer extends KTKafkaBroker {
   async sendSingleMessage(params: { topicName: KafkaTopicName, value: string, messageKey: KafkaMessageKey, headers: KTHeaders  }) {
     const { topicName, messageKey, value, headers } = params;
 
-    await this.#producer.send({
-      topic: topicName,
-      messages: [
-        {
-          key: messageKey ?? null,
-          value,
-          headers,
-        },
-      ],
-    });
+    await this.#produceMessage({
+      topicName,
+      value,
+      messageKey,
+      headers,
+    })
   }
 
   async sendBatchMessages(params: KTTopicBatchPayload) {
     const { topicName, messages } = params;
 
-    await this.#producer.send({
-      topic: topicName,
-      messages,
-    });
+    await Promise.all(messages.map(async (message) => {
+      await this.#produceMessage({
+        topicName,
+        value: message.value,
+        messageKey: message.key,
+        headers: message.headers || {},
+      })
+    }))
   }
 
-  async #fetchTopicMetadata(params: { topics: string[] }): Promise<{ topics: KTTopicMetadata[] }> {
-    try {
-      const metadata = await this.#admin.fetchTopicMetadata(params);
+  async #produceMessage(params: {
+    topicName: KafkaTopicName
+    value: string
+    messageKey: KafkaMessageKey
+    headers: KTHeaders
+  }) {
+    const { topicName, messageKey, value, headers } = params
+    const producer = this.#producer
 
-      if (Array.isArray(metadata)) {
-        return {
-          topics: metadata as KTTopicMetadata[],
-        }
-      }
-
-      return metadata as { topics: KTTopicMetadata[] }
-    } catch (err) {
-      if (err instanceof Error) {
-        const errorCode = "code" in err ? err.code : undefined
-
-        if (errorCode === CODES.ERRORS.ERR__UNKNOWN_TOPIC || errorCode === CODES.ERRORS.ERR_UNKNOWN_TOPIC_OR_PART) {
-          return { topics: [] }
-        }
-      }
-
-      throw err
+    if (!producer) {
+      throw new Error("Producer is not initialized")
     }
+
+    await new Promise<void>((resolve, reject) => {
+      const opaque: ProducerDeliveryOpaque = {
+        resolve,
+        reject,
+      }
+
+      try {
+        producer.produce(
+          topicName,
+          null,
+          Buffer.from(value),
+          messageKey ?? null,
+          null,
+          opaque,
+          toRdKafkaHeaders(headers),
+        )
+      } catch (err) {
+        reject(err as unknown as Error)
+      }
+    })
   }
 
   async #createPartitions(params: { topicPartitions: Array<{ topic: string, count: number }> }): Promise<boolean> {
-    if (!this.#lowLevelAdmin) {
-      throw new Error("Confluent low-level admin client is not connected")
+    const admin = this.#admin
+
+    if (!admin) {
+      throw new Error("Producer admin is not initialized")
     }
 
     await Promise.all(params.topicPartitions.map((topicPartition) => {
       return new Promise<void>((resolve, reject) => {
-        this.#lowLevelAdmin?.createPartitions(topicPartition.topic, topicPartition.count, 30_000, (err?: Error) => {
+        admin.createPartitions(topicPartition.topic, topicPartition.count, 30_000, (err: unknown) => {
           if (err) {
-            reject(err)
+            reject(err as unknown as Error)
 
             return
           }

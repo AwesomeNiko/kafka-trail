@@ -30,68 +30,110 @@ export type KafkaLogger = {
 
 export type KafkaWithLogger<T extends KafkaBrokerConfig> = T & KafkaLogger
 
-const { KafkaJS } = ConfluentKafka
+export type RdKafkaGlobalConfig = Record<string, unknown>
 
-type ConfluentCommonConstructorConfig = NonNullable<ConstructorParameters<typeof KafkaJS.Kafka>[0]>
+const { CODES, Producer, KafkaConsumer, AdminClient } = ConfluentKafka
 
-const toConfluentCommonConfig = (params: KafkaBrokerConfig): ConfluentCommonConstructorConfig => {
+const toSaslConfig = (sasl: Record<string, unknown>): RdKafkaGlobalConfig => {
+  const mechanism = typeof sasl.mechanism === "string"
+    ? sasl.mechanism.toUpperCase()
+    : undefined
+
+  if (!mechanism) {
+    throw new Error("SASL mechanism must be provided for the low-level confluent runtime")
+  }
+
+  const config: RdKafkaGlobalConfig = {
+    "sasl.mechanism": mechanism,
+  }
+
+  if (typeof sasl.username === "string") {
+    config["sasl.username"] = sasl.username
+  }
+
+  if (typeof sasl.password === "string") {
+    config["sasl.password"] = sasl.password
+  }
+
+  return config
+}
+
+const toRdKafkaCommonConfig = (params: KafkaBrokerConfig): RdKafkaGlobalConfig => {
   if (params.pureConfig.ssl && typeof params.pureConfig.ssl !== "boolean") {
     throw new Error("Confluent runtime currently supports only boolean ssl configuration")
   }
 
-  const kafkaJSConfig: ConfluentCommonConstructorConfig["kafkaJS"] = {
-    brokers: params.kafkaSettings.brokerUrls,
-    clientId: params.kafkaSettings.clientId,
-    connectionTimeout: params.kafkaSettings.connectionTimeout,
+  if (params.pureConfig.socketFactory !== undefined) {
+    throw new Error("Custom socketFactory is not supported by the low-level confluent runtime")
   }
 
-  if (params.pureConfig.authenticationTimeout !== undefined) {
-    kafkaJSConfig.authenticationTimeout = params.pureConfig.authenticationTimeout
+  if (params.pureConfig.reauthenticationThreshold !== undefined) {
+    throw new Error("reauthenticationThreshold is not supported by the low-level confluent runtime")
+  }
+
+  const config: RdKafkaGlobalConfig = {
+    "bootstrap.servers": params.kafkaSettings.brokerUrls.join(","),
+    "client.id": params.kafkaSettings.clientId,
+    "socket.connection.setup.timeout.ms": params.kafkaSettings.connectionTimeout,
+    "allow.auto.create.topics": false,
   }
 
   if (params.pureConfig.requestTimeout !== undefined) {
-    kafkaJSConfig.requestTimeout = params.pureConfig.requestTimeout
+    config["socket.timeout.ms"] = params.pureConfig.requestTimeout
   }
 
-  if (params.pureConfig.enforceRequestTimeout !== undefined) {
-    kafkaJSConfig.enforceRequestTimeout = params.pureConfig.enforceRequestTimeout
+  if (params.pureConfig.retry?.initialRetryTime !== undefined) {
+    config["retry.backoff.ms"] = params.pureConfig.retry.initialRetryTime
+    config["reconnect.backoff.ms"] = params.pureConfig.retry.initialRetryTime
   }
 
-  if (params.pureConfig.retry !== undefined) {
-    kafkaJSConfig.retry = params.pureConfig.retry
+  if (params.pureConfig.retry?.maxRetryTime !== undefined) {
+    config["retry.backoff.max.ms"] = params.pureConfig.retry.maxRetryTime
+    config["reconnect.backoff.max.ms"] = params.pureConfig.retry.maxRetryTime
   }
 
-  if (params.pureConfig.logLevel !== undefined) {
-    Object.assign(kafkaJSConfig, {
-      logLevel: params.pureConfig.logLevel as unknown,
-    })
+  if (typeof params.pureConfig.retry?.retries === "number") {
+    config["message.send.max.retries"] = params.pureConfig.retry.retries
   }
 
   if (params.pureConfig.sasl !== undefined) {
-    Object.assign(kafkaJSConfig, {
-      sasl: params.pureConfig.sasl as unknown,
-    })
+    Object.assign(config, toSaslConfig(params.pureConfig.sasl))
+
+    if (params.pureConfig.ssl) {
+      config["security.protocol"] = "sasl_ssl"
+    } else {
+      config["security.protocol"] = "sasl_plaintext"
+    }
+  } else if (params.pureConfig.ssl) {
+    config["security.protocol"] = "ssl"
   }
 
-  if (typeof params.pureConfig.ssl === "boolean") {
-    kafkaJSConfig.ssl = params.pureConfig.ssl
-  }
+  return config
+}
 
-  return {
-    kafkaJS: kafkaJSConfig,
-  }
+const rdKafkaFactories = {
+  createProducer(config: RdKafkaGlobalConfig) {
+    return new Producer(config)
+  },
+  createConsumer(config: RdKafkaGlobalConfig) {
+    return new KafkaConsumer(config)
+  },
+  createAdminClient(config: RdKafkaGlobalConfig) {
+    return AdminClient.create(config)
+  },
 }
 
 class KTKafkaBroker {
-  _kafka: InstanceType<typeof KafkaJS.Kafka>;
+  protected _globalConfig: RdKafkaGlobalConfig;
 
   constructor(params: KafkaBrokerConfig) {
-    this._kafka = new KafkaJS.Kafka(toConfluentCommonConfig(params));
+    this._globalConfig = toRdKafkaCommonConfig(params);
   }
 
   encode(message: object) {
     return JSON.stringify(message);
   }
+
   decode<T>(message: string) {
     return JSON.parse(message) as T;
   }
@@ -99,6 +141,10 @@ class KTKafkaBroker {
 
 export {
   KTKafkaBroker,
-  KafkaJS,
-  toConfluentCommonConfig,
+  Producer,
+  KafkaConsumer,
+  AdminClient,
+  CODES,
+  toRdKafkaCommonConfig,
+  rdKafkaFactories,
 };

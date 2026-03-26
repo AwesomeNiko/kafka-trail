@@ -7,14 +7,14 @@ import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index
 
 import { createKafkaMocks } from "./mocks/create-mocks.js";
 
-const { consumerSubscribe, createConsumerMock } = createKafkaMocks({
+const { consumerSubscribe, consumerFactorySpy } = createKafkaMocks({
   topicName: "consumer-test-topic",
 });
 
 describe("KafkaConsumer subscribe config", () => {
   beforeEach(() => {
     consumerSubscribe.mockClear();
-    createConsumerMock.mockClear();
+    consumerFactorySpy.mockClear();
   });
 
   it("should subscribe with fromBeginning=true by default", async () => {
@@ -30,12 +30,11 @@ describe("KafkaConsumer subscribe config", () => {
       logger: pino(),
     });
 
+    await consumer.init();
     await consumer.subscribeTopic([topicName]);
 
     expect(consumerSubscribe).toHaveBeenCalledTimes(1);
-    expect(consumerSubscribe).toHaveBeenCalledWith({
-      topics: [topicName],
-    });
+    expect(consumerSubscribe).toHaveBeenCalledWith([topicName]);
   });
 
   it("should subscribe with fromBeginning=true when explicitly enabled", async () => {
@@ -52,12 +51,11 @@ describe("KafkaConsumer subscribe config", () => {
       logger: pino(),
     });
 
+    await consumer.init();
     await consumer.subscribeTopic([topicName]);
 
     expect(consumerSubscribe).toHaveBeenCalledTimes(1);
-    expect(consumerSubscribe).toHaveBeenCalledWith({
-      topics: [topicName],
-    });
+    expect(consumerSubscribe).toHaveBeenCalledWith([topicName]);
   });
 
   it("should reject custom partition assigner functions", () => {

@@ -5,12 +5,9 @@ import type { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { ifNanUseDefaultNumber } from "../libs/helpers/castings.js";
 import { retry } from "../libs/helpers/retry.js";
 
-import type { KafkaWithLogger , KafkaBrokerConfig } from "./kafka-broker.js";
-import { KafkaJS, KTKafkaBroker } from "./kafka-broker.js";
+import { KTKafkaBroker, rdKafkaFactories, type KafkaConsumer, type KafkaWithLogger, type KafkaBrokerConfig, type RdKafkaGlobalConfig } from "./kafka-broker.js";
 import type { KTConsumerRunConfig, KTPartitionAssigner } from "./kafka-types.js";
 
-type ConfluentConsumerConstructorConfig = NonNullable<Parameters<InstanceType<typeof KafkaJS.Kafka>["consumer"]>[0]>
-type ConfluentKafkaJSConsumerConfig = NonNullable<ConfluentConsumerConstructorConfig["kafkaJS"]>
 type ConfluentEachMessagePayload = {
   topic: string
   partition: number
@@ -21,6 +18,7 @@ type ConfluentEachMessagePayload = {
   }
   heartbeat: () => Promise<void>
 }
+
 type ConfluentEachBatchPayload = {
   batch: {
     topic: string
@@ -34,14 +32,19 @@ type ConfluentEachBatchPayload = {
   heartbeat: () => Promise<void>
   resolveOffset: (offset: string) => void
 }
-type ConfluentConsumerLike = ReturnType<InstanceType<typeof KafkaJS.Kafka>["consumer"]> & {
-  subscribe: (params: { topics: string[] }) => Promise<void>
-  run: (config: {
-    partitionsConsumedConcurrently?: number
-    eachBatchAutoResolve?: boolean
-    eachMessage?: (payload: ConfluentEachMessagePayload) => Promise<void>
-    eachBatch?: (payload: ConfluentEachBatchPayload) => Promise<void>
-  }) => Promise<void>
+
+type RdKafkaMessage = {
+  topic: string
+  partition: number
+  offset: number
+  key?: Buffer | string | null | undefined
+  value: Buffer | null
+}
+
+type RdKafkaTopicPartitionOffset = {
+  topic: string
+  partition: number
+  offset: number
 }
 
 export type KTKafkaConsumerConfig = {
@@ -64,18 +67,71 @@ export type KTKafkaConsumerConfig = {
   }
 } & KafkaBrokerConfig
 
+const connectConsumer = async (consumer: InstanceType<typeof KafkaConsumer>) => {
+  await new Promise<void>((resolve, reject) => {
+    consumer.connect(undefined, (err) => {
+      if (err) {
+        reject(err as unknown as Error)
+
+        return
+      }
+
+      resolve()
+    })
+  })
+}
+
+const disconnectConsumer = async (consumer: InstanceType<typeof KafkaConsumer>) => {
+  await new Promise<void>((resolve, reject) => {
+    consumer.disconnect((err) => {
+      if (err) {
+        reject(err as unknown as Error)
+
+        return
+      }
+
+      resolve()
+    })
+  })
+}
+
+const consumeMessages = async (
+  consumer: InstanceType<typeof KafkaConsumer>,
+  batchSize: number,
+): Promise<RdKafkaMessage[]> => {
+  return await new Promise<RdKafkaMessage[]>((resolve, reject) => {
+    consumer.consume(batchSize, (err, messages) => {
+      if (err) {
+        reject(err as unknown as Error)
+
+        return
+      }
+
+      resolve(messages || [])
+    })
+  })
+}
+
+const commitOffset = (consumer: InstanceType<typeof KafkaConsumer>, offset: RdKafkaTopicPartitionOffset) => {
+  consumer.commitSync(offset)
+}
+
 class KTKafkaConsumer extends KTKafkaBroker {
   #isConnected = false;
   #logger: pino.Logger;
+  #shouldStop = false;
+  #runPromise: Promise<void> | null = null;
   heartBeatInterval: number;
 
-  consumer: ConfluentConsumerLike
+  consumer: InstanceType<typeof KafkaConsumer> | null = null
 
   #subscribeRetry = {
     interval: 2000,
     retries: 50,
   };
   #subscribeFromBeginning = false;
+  #consumeBatchSize = 32
+  #consumerConfig: RdKafkaGlobalConfig;
 
   heartbeatEarlyFactor: number = 0.1
 
@@ -96,10 +152,15 @@ class KTKafkaConsumer extends KTKafkaBroker {
       rebalanceTimeout,
       maxBytes,
       partitionAssignerFn,
+      batchConsuming,
     } = params.kafkaSettings;
 
     if (!consumerGroupId) {
       throw new Error("group id must be provided");
+    }
+
+    if (partitionAssignerFn) {
+      throw new Error("Custom partition assigners are not supported by the confluent runtime")
     }
 
     const { logger } = params
@@ -111,40 +172,31 @@ class KTKafkaConsumer extends KTKafkaBroker {
     this.heartBeatInterval = ifNanUseDefaultNumber(heartbeatInterval, 5000)
     this.heartbeatEarlyFactor = ifNanUseDefaultNumber(heartbeatEarlyFactor, 0.1)
 
-    const maxWaitTimeInMsParam = ifNanUseDefaultNumber(maxWaitTimeInMs, 5000)
-    const sessionTimeoutParam = ifNanUseDefaultNumber(sessionTimeout, 60000)
-    const maxBytesPerPartitionParam = ifNanUseDefaultNumber(maxBytesPerPartition, 10_485_760)
-    const maxInFlightRequestsParam = ifNanUseDefaultNumber(maxInFlightRequests, 1)
-    const rebalanceTimeoutParam = ifNanUseDefaultNumber(rebalanceTimeout, 60_000)
+    this.#consumerConfig = {
+      ...this._globalConfig,
+      "group.id": consumerGroupId,
+      "allow.auto.create.topics": false,
+      "enable.auto.commit": false,
+      "enable.auto.offset.store": false,
+      "auto.offset.reset": this.#subscribeFromBeginning ? "earliest" : "latest",
+      "session.timeout.ms": ifNanUseDefaultNumber(sessionTimeout, 60000),
+      "fetch.wait.max.ms": ifNanUseDefaultNumber(maxWaitTimeInMs, 5000),
+      "max.partition.fetch.bytes": ifNanUseDefaultNumber(maxBytesPerPartition, 10_485_760),
+      "max.in.flight": ifNanUseDefaultNumber(maxInFlightRequests, 1),
+      "partition.assignment.strategy": "roundrobin",
+    }
+
     const maxBytesParam = ifNanUseDefaultNumber(maxBytes, 10_485_760)
+    this.#consumerConfig["fetch.message.max.bytes"] = maxBytesParam
 
-    if (partitionAssignerFn) {
-      throw new Error("Custom partition assigners are not supported by the confluent runtime")
+    if (rebalanceTimeout !== undefined) {
+      this.#consumerConfig["max.poll.interval.ms"] = rebalanceTimeout
     }
 
-    const kafkaJSConsumerConfig: ConfluentKafkaJSConsumerConfig = {
-      groupId: consumerGroupId,
-      allowAutoTopicCreation: false,
-      heartbeatInterval: this.heartBeatInterval,
-      sessionTimeout: sessionTimeoutParam,
-      maxWaitTimeInMs: maxWaitTimeInMsParam,
-      maxBytesPerPartition: maxBytesPerPartitionParam,
-      maxInFlightRequests: maxInFlightRequestsParam,
-      rebalanceTimeout: rebalanceTimeoutParam,
-      partitionAssigners: [KafkaJS.PartitionAssigners.roundRobin],
-      maxBytes: maxBytesParam,
-      fromBeginning: this.#subscribeFromBeginning,
+    if (batchConsuming) {
+      this.#consumeBatchSize = 128
     }
 
-    const consumerConfig: ConfluentConsumerConstructorConfig = {
-      kafkaJS: kafkaJSConsumerConfig,
-    }
-
-    if (params.kafkaSettings.batchConsuming) {
-      consumerConfig["js.consumer.max.batch.size"] = -1
-    }
-
-    this.consumer = this._kafka.consumer(consumerConfig) as ConfluentConsumerLike;
   }
 
   isConnected() {
@@ -152,31 +204,53 @@ class KTKafkaConsumer extends KTKafkaBroker {
   }
 
   async init() {
-    await this.consumer.connect();
+    this.consumer = rdKafkaFactories.createConsumer(this.#consumerConfig)
+    this.consumer.setDefaultConsumeTimeout(100)
+
+    await connectConsumer(this.consumer);
     this.#isConnected = true;
 
     return this.isConnected();
   }
 
   async destroy() {
-    await this.consumer.stop().catch((err: unknown) => {
-      if (err instanceof Error && err.message === "Not implemented") {
-        return;
-      }
+    this.#shouldStop = true
 
-      throw err;
-    });
+    if (this.#runPromise) {
+      await this.#runPromise.catch((err: unknown) => {
+        if (err instanceof Error && err.message === "Consumer destroyed") {
+          return
+        }
+
+        throw err
+      })
+    }
+
     this.#isConnected = false;
 
-    await this.consumer.disconnect();
+    if (this.consumer && this.consumer.subscription().length > 0) {
+      this.consumer.unsubscribe()
+    }
+
+    if (this.consumer) {
+      await disconnectConsumer(this.consumer);
+      this.consumer = null
+    }
   }
 
   async subscribeTopic(topics: KafkaTopicName[]) {
+    const consumer = this.consumer
+
+    if (!consumer) {
+      throw new Error("Consumer is not initialized")
+    }
+
     const isSubscribed = await retry(
-      async () =>
-        await this.consumer.subscribe({
-          topics,
-        }),
+      () => {
+        consumer.subscribe(topics)
+
+        return Promise.resolve()
+      },
       this.#logger,
       {
         maxRetries: this.#subscribeRetry.retries,
@@ -189,46 +263,130 @@ class KTKafkaConsumer extends KTKafkaBroker {
     }
   }
 
-  async run(config: KTConsumerRunConfig) {
-    if (config.mode === "eachMessage") {
-      await this.consumer.run({
-        partitionsConsumedConcurrently: config.partitionsConsumedConcurrently,
-        eachMessage: async (payload: ConfluentEachMessagePayload) => {
-          await config.eachMessage({
-            topic: payload.topic,
-            partition: payload.partition,
-            message: {
-              key: payload.message.key,
-              value: payload.message.value,
-              offset: payload.message.offset,
-            },
-            heartbeat: () => payload.heartbeat(),
-          })
-        },
-      })
+  run(config: KTConsumerRunConfig) {
+    if (this.#runPromise) {
+      return Promise.resolve()
+    }
 
+    this.#shouldStop = false
+    this.#runPromise = this.#runLoop(config).catch((err: unknown) => {
+      this.#logger.error(err)
+      throw err
+    }).finally(() => {
+      this.#runPromise = null
+    })
+
+    return Promise.resolve()
+  }
+
+  async #runLoop(config: KTConsumerRunConfig) {
+    const consumer = this.consumer
+
+    if (!consumer) {
+      throw new Error("Consumer is not initialized")
+    }
+
+    while (!this.#shouldStop) {
+      const messages = await consumeMessages(consumer, config.mode === "eachMessage" ? 1 : this.#consumeBatchSize)
+
+      if (messages.length === 0) {
+        continue
+      }
+
+      if (config.mode === "eachMessage") {
+        for (const message of messages) {
+          await this.#runEachMessage(message, config)
+        }
+
+        continue
+      }
+
+      await this.#runEachBatch(messages, config)
+    }
+  }
+
+  async #runEachMessage(message: RdKafkaMessage, config: Extract<KTConsumerRunConfig, { mode: "eachMessage" }>) {
+    const consumer = this.consumer
+
+    if (!consumer) {
+      throw new Error("Consumer is not initialized")
+    }
+
+    const payload: ConfluentEachMessagePayload = {
+      topic: message.topic,
+      partition: message.partition,
+      message: {
+        key: Buffer.isBuffer(message.key)
+          ? message.key
+          : message.key
+            ? Buffer.from(String(message.key))
+            : null,
+        value: message.value,
+        offset: String(message.offset),
+      },
+      heartbeat: () => {
+        return Promise.resolve()
+      },
+    }
+
+    await config.eachMessage(payload)
+    consumer.commitMessageSync(message)
+  }
+
+  async #runEachBatch(messages: RdKafkaMessage[], config: Extract<KTConsumerRunConfig, { mode: "eachBatch" }>) {
+    const consumer = this.consumer
+
+    if (!consumer) {
+      throw new Error("Consumer is not initialized")
+    }
+
+    const firstMessage = messages[0]
+
+    if (!firstMessage) {
       return
     }
 
-    await this.consumer.run({
-      eachBatchAutoResolve: config.eachBatchAutoResolve,
-      partitionsConsumedConcurrently: config.partitionsConsumedConcurrently,
-      eachBatch: async (payload: ConfluentEachBatchPayload) => {
-        await config.eachBatch({
-          batch: {
-            topic: payload.batch.topic,
-            partition: payload.batch.partition,
-            messages: payload.batch.messages.map((message) => ({
-              key: message.key,
-              value: message.value,
-              offset: message.offset,
-            })),
-          },
-          heartbeat: () => payload.heartbeat(),
-          resolveOffset: (offset: string) => payload.resolveOffset(offset),
-        })
+    let resolvedOffset: string | null = null
+
+    const payload: ConfluentEachBatchPayload = {
+      batch: {
+        topic: firstMessage.topic,
+        partition: firstMessage.partition,
+        messages: messages.map((message) => ({
+          key: Buffer.isBuffer(message.key)
+            ? message.key
+            : message.key
+              ? Buffer.from(String(message.key))
+              : null,
+          value: message.value,
+          offset: String(message.offset),
+        })),
       },
-    })
+      heartbeat: () => {
+        return Promise.resolve()
+      },
+      resolveOffset: (offset: string) => {
+        resolvedOffset = offset
+      },
+    }
+
+    await config.eachBatch(payload)
+
+    if (config.eachBatchAutoResolve && resolvedOffset === null) {
+      const lastMessage = messages[messages.length - 1]
+
+      if (lastMessage) {
+        resolvedOffset = String(lastMessage.offset)
+      }
+    }
+
+    if (resolvedOffset !== null) {
+      commitOffset(consumer, {
+        topic: firstMessage.topic,
+        partition: firstMessage.partition,
+        offset: Number(resolvedOffset) + 1,
+      })
+    }
   }
 }
 

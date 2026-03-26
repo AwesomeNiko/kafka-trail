@@ -8,11 +8,10 @@ import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-
 import { createKafkaMocks } from "./mocks/create-mocks.js";
 
 const {
-  kafkaAdminConnectFn,
   kafkaProducerConnectFn,
   sendMsgFn,
-  createAdminMock,
-  createProducerMock,
+  producerFactorySpy,
+  adminFactorySpy,
 } = createKafkaMocks({
   topicName: 'basic-topic-name',
   partitions: 2,
@@ -20,11 +19,10 @@ const {
 
 describe("KafkaProducer test", () => {
   beforeEach(() => {
-    kafkaAdminConnectFn.mockClear();
     kafkaProducerConnectFn.mockClear();
     sendMsgFn.mockClear();
-    createAdminMock.mockClear();
-    createProducerMock.mockClear();
+    producerFactorySpy.mockClear();
+    adminFactorySpy.mockClear();
   });
 
   it("should init successful", async () => {
@@ -40,7 +38,6 @@ describe("KafkaProducer test", () => {
 
     await kafkaProducer.init();
 
-    expect(kafkaAdminConnectFn).toHaveBeenCalledTimes(1);
     expect(kafkaProducerConnectFn).toHaveBeenCalledTimes(1);
   });
 
@@ -59,6 +56,7 @@ describe("KafkaProducer test", () => {
       logger: pino(),
     });
 
+    await kafkaProducer.init();
     await kafkaProducer.sendSingleMessage({
       topicName: TOPIC_NAME,
       messageKey: MESSAGE_KEY,
@@ -69,11 +67,11 @@ describe("KafkaProducer test", () => {
     expect(sendMsgFn).toHaveBeenCalledTimes(1);
     expect(sendMsgFn).toHaveBeenCalledWith({
       topic: TOPIC_NAME,
-      messages: [{
-        key: MESSAGE_KEY,
-        value: '1',
-        headers: {},
-      }],
+      partition: null,
+      message: Buffer.from("1"),
+      key: MESSAGE_KEY,
+      timestamp: null,
+      opaque: expect.any(Object),
     });
   });
 
@@ -94,6 +92,7 @@ describe("KafkaProducer test", () => {
       logger: pino(),
     });
 
+    await kafkaProducer.init();
     await kafkaProducer.sendBatchMessages({
       topicName: TOPIC_NAME,
       messages: [{
@@ -106,11 +105,11 @@ describe("KafkaProducer test", () => {
     expect(sendMsgFn).toHaveBeenCalledTimes(1);
     expect(sendMsgFn).toHaveBeenCalledWith({
       topic: TOPIC_NAME,
-      messages: [{
-        key: MESSAGE_KEY,
-        value: "1",
-        headers: {},
-      }],
+      partition: null,
+      message: Buffer.from("1"),
+      key: MESSAGE_KEY,
+      timestamp: null,
+      opaque: expect.any(Object),
     });
   });
 });
