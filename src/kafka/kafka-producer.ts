@@ -20,6 +20,7 @@ class KTKafkaProducer extends KTKafkaBroker {
   #admin: KTRuntimeAdmin;
   #logger: pino.Logger;
   #compressionType: CompressionTypes;
+  #adminDependsOnProducer: boolean;
 
   constructor(params: KafkaWithLogger<KTKafkaProducerConfig>) {
     super(params);
@@ -41,21 +42,38 @@ class KTKafkaProducer extends KTKafkaBroker {
       createPartitioner: customPartitioner,
       compression: params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4,
     });
-    this.#admin = this._runtime.createAdmin();
+    const dependentAdmin = this.#producer.createDependentAdmin?.()
+
+    this.#admin = dependentAdmin ?? this._runtime.createAdmin();
     this.#logger = logger;
     this.#compressionType = params.kafkaSettings.compressionCodec?.codecType ?? CompressionTypes.LZ4;
+    this.#adminDependsOnProducer = Boolean(dependentAdmin)
   }
 
   getAdmin() {
     return this.#admin
   }
 
-  init() {
-    return Promise.all([this.#admin.connect(), this.#producer.connect()]);
+  async init() {
+    if (this.#adminDependsOnProducer) {
+      await this.#producer.connect()
+      await this.#admin.connect()
+
+      return
+    }
+
+    await Promise.all([this.#admin.connect(), this.#producer.connect()]);
   }
 
-  destroy() {
-    return Promise.all([this.#admin.disconnect(), this.#producer.disconnect()]);
+  async destroy() {
+    if (this.#adminDependsOnProducer) {
+      await this.#admin.disconnect()
+      await this.#producer.disconnect()
+
+      return
+    }
+
+    await Promise.all([this.#admin.disconnect(), this.#producer.disconnect()]);
   }
 
   async createTopic(topicConfig: Kafka.ITopicConfig): Promise<void> {

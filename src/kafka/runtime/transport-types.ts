@@ -76,6 +76,7 @@ export interface KTRuntimeAdmin {
 export interface KTRuntimeProducer {
   connect(): Promise<void>
   disconnect(): Promise<void>
+  createDependentAdmin?(): KTRuntimeAdmin
   send(params: {
     topic: KafkaTopicName
     compression: unknown
