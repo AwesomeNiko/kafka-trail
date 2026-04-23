@@ -30,26 +30,26 @@
     "lint:check": "yarn typecheck && eslint --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "lint:fix": "eslint --fix --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:native": "cd native/lz4 && napi build --release",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --detectOpenHandles",
     "test:int": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.int.json --detectOpenHandles",
     "test": "yarn test:unit && yarn test:int",
     "prepare": "husky",
     "start": "NODE_PATH=./dist node --enable-source-maps dist/test-run.js",
-    "build": "rimraf dist && tsc -P tsconfig.build.json",
+    "build": "yarn build:native && rimraf dist && tsc -P tsconfig.build.json",
     "dev": "npm run build && npm run start"
   },
   "dependencies": {
     "@aws-sdk/client-glue": "^3.1016.0",
     "@opentelemetry/api": "^1.9.0",
     "kafkajs": "^2.2.4",
-    "lz4": "^0.6.5",
     "pino": "^9.6.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@napi-rs/cli": "^3.6.2",
     "@jest/globals": "^30.3.0",
     "@types/jest": "^30.0.0",
-    "@types/lz4": "^0.6.4",
     "@types/node": "^22.13.4",
     "@typescript-eslint/eslint-plugin": "8.24.1",
     "@typescript-eslint/parser": "8.24.1",
@@ -75,6 +75,7 @@
   },
   "files": [
     "dist",
+    "native/lz4",
     "LICENSE",
     "README.md"
   ]

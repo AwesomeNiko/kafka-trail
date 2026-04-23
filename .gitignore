@@ -13,6 +13,8 @@ jspm_packages/
 # Build output
 dist/
 build/
+native/lz4/target/
+native/lz4/*.node
 
 # Runtime data
 *.pid
