@@ -196,6 +196,14 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   async initConsumer(params: KTKafkaConsumerConfig) {
+    const {
+      kafkaSettings: { brokerUrls },
+    } = params;
+
+    if (!brokerUrls || !brokerUrls.length) {
+      throw new ArgumentIsRequired("brokerUrls");
+    }
+
     const registeredHandlers = [...this.#registeredHandlers.values()]
 
     if (registeredHandlers.length === 0) {
