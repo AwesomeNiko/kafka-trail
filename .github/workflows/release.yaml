@@ -175,7 +175,7 @@ jobs:
           git config --global commit.gpgsign true
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: release/v${{ steps.version.outputs.new_version }}
           base: ${{ inputs.base_branch }}
