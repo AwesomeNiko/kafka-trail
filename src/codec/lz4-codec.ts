@@ -1,15 +1,21 @@
-import lz4 from "lz4";
+import nativeBinding from "../../native/lz4/index.cjs";
 
 export type lz4Codec = typeof lz4Codec
 
+type NativeLz4Binding = {
+  compress(input: Buffer): Buffer;
+  decompress(input: Buffer): Buffer;
+}
+
+const binding: NativeLz4Binding = nativeBinding;
+
 const lz4Codec = {
-  compress(encoder: Buffer) {
-    // @ts-expect-error encode type required Buffer, but implementation for a some reason required ArrayBufferLike
-    return lz4.encode(encoder.buffer);
+  compress(encoder: { buffer: ArrayBufferLike }) {
+    return Buffer.from(binding.compress(Buffer.from(encoder.buffer)));
   },
 
   decompress<T>(buffer: Buffer) {
-    return lz4.decode(buffer) as T;
+    return Buffer.from(binding.decompress(buffer)) as T;
   },
 };
 

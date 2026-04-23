@@ -1,0 +1,15 @@
+[package]
+name = "kafka_trail_lz4"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+lz4_flex = { version = "0.11", default-features = false, features = ["frame", "std"] }
+napi = { version = "2", default-features = false, features = ["napi6"] }
+napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2"

@@ -32,6 +32,46 @@ Or with Yarn:
 yarn add @awesomeniko/kafka-trail
 ```
 
+### Native LZ4 codec
+
+The default `LZ4` codec is now backed by an internal `Rust + napi-rs` native binding instead of the `lz4` npm package.
+
+- Library consumers should use the prebuilt native artifact shipped with the package.
+- If you are developing this repository from source, run `yarn build:native` before `yarn build` or `yarn test`.
+- The native module source lives in `native/lz4`.
+
+### Native build requirements
+
+If you are building this repository from source, you need:
+
+- `Node.js`
+- `yarn` or `npm`
+- `Rust` toolchain via `rustup` with `cargo` and `rustc`
+- On macOS, `Xcode Command Line Tools`
+
+Local development flow:
+
+```bash
+yarn install
+yarn build:native
+yarn build
+```
+
+This setup does not require `python`, `node-gyp`, or a C++ Node addon toolchain.
+
+### Publishing native binaries
+
+For local development, building the native module from source is enough. For npm distribution, the better long-term setup is to publish prebuilt `napi-rs` binaries per platform so library consumers do not need Rust installed.
+
+Recommended direction:
+
+- keep the Rust source in `native/lz4`
+- build platform-specific `.node` artifacts in CI
+- publish them as optional platform packages
+- let the main package depend on those optional native packages
+
+That is the standard `napi-rs` distribution model and avoids local compilation for end users.
+
 ## Usage
 Here’s an example of how to use the `@awesomeniko/kafka-trail` library in your project.
 ### If you want only producer:
@@ -283,7 +323,16 @@ You can override it, by passing via `KTKafkaSettings` type. Be careful - produce
 ```typescript
 import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
 import { CompressionTypes } from "kafkajs";
-import lz4 from "lz4";
+
+const customLz4Codec = {
+  compress(encoder: Buffer) {
+    return encoder;
+  },
+
+  decompress<T>(buffer: Buffer) {
+    return buffer as T;
+  },
+};
 
 // Instanciate messageQueue
 const kafkaBrokerUrls = ["localhost:19092"];
@@ -297,20 +346,14 @@ await messageQueue.initProducer({
     connectionTimeout: 30_000,
     compressionCodec: {
       codecType: CompressionTypes.LZ4,
-      codecFn: {
-        compress(encoder: Buffer) {
-          return lz4.encode(encoder);
-        },
-
-        decompress<T>(buffer: Buffer) {
-          return lz4.decode(buffer) as T;
-        },
-      },
+      codecFn: customLz4Codec,
     },
   },
   pureConfig: {},
 })
 ```
+
+The example above shows the shape of a custom codec. In a real codec implementation, `compress` and `decompress` should perform matching transformations.
 
 
 ### Data encoding / decoding

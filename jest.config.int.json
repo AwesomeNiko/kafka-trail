@@ -11,6 +11,7 @@
   },
   "extensionsToTreatAsEsm": [".ts"],
   "moduleNameMapper": {
+    "^../../native/lz4/index\\.cjs$": "<rootDir>/src/__tests__/mocks/lz4-native.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
   "verbose": true,
