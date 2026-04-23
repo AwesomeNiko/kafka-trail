@@ -1,5 +1,8 @@
 name: CI and Release
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   pull_request:
   push:
@@ -306,9 +309,7 @@ jobs:
           path: native/lz4
 
       - name: Build package
-        run: |
-          rimraf dist
-          tsc -P tsconfig.build.json
+        run: yarn build:ts
 
       - name: Enforce OIDC trusted publishing mode
         run: |

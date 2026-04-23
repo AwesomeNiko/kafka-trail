@@ -31,12 +31,13 @@
     "lint:fix": "eslint --fix --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build:native": "node -e \"const fs=require('node:fs'); const path=require('node:path'); for (const name of fs.readdirSync('native/lz4')) { if (name.endsWith('.node')) fs.rmSync(path.join('native/lz4', name), { force: true }); }\" && cd native/lz4 && napi build --platform --release",
+    "build:ts": "rimraf dist && tsc -P tsconfig.build.json",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --detectOpenHandles",
     "test:int": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.int.json --detectOpenHandles",
     "test": "yarn test:unit && yarn test:int",
     "prepare": "husky",
     "start": "NODE_PATH=./dist node --enable-source-maps dist/test-run.js",
-    "build": "yarn build:native && rimraf dist && tsc -P tsconfig.build.json",
+    "build": "yarn build:native && yarn build:ts",
     "dev": "npm run build && npm run start"
   },
   "dependencies": {
