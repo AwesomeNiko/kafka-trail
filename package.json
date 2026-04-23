@@ -30,7 +30,7 @@
     "lint:check": "yarn typecheck && eslint --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "lint:fix": "eslint --fix --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build:native": "cd native/lz4 && napi build --release",
+    "build:native": "rimraf native/lz4/*.node && cd native/lz4 && napi build --platform --release",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --detectOpenHandles",
     "test:int": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.int.json --detectOpenHandles",
     "test": "yarn test:unit && yarn test:int",
@@ -79,7 +79,9 @@
   },
   "files": [
     "dist",
-    "native/lz4",
+    "native/lz4/index.cjs",
+    "native/lz4/index.d.cts",
+    "native/lz4/*.node",
     "LICENSE",
     "README.md"
   ]

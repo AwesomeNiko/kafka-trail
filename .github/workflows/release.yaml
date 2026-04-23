@@ -49,6 +49,9 @@ jobs:
           node-version-file: .nvmrc
           cache: yarn
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
@@ -57,6 +60,49 @@ jobs:
 
       - name: Run unit tests
         run: yarn test:unit
+
+  detect_release:
+    name: Detect Release
+    runs-on: ubuntu-latest
+    outputs:
+      is_release: ${{ steps.release_check.outputs.is_release }}
+      new_version: ${{ steps.release_check.outputs.new_version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Detect release merge
+        id: release_check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.workflow_action }}" = "publish_only" ]; then
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "new_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          PREVIOUS_VERSION=$(git show HEAD^:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" || echo "")
+
+          if [ -z "$PREVIOUS_VERSION" ]; then
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "new_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
 
   create_release_pr:
     name: Create Release PR
@@ -142,13 +188,91 @@ jobs:
           labels: release
           delete-branch: true
 
+  build_native:
+    name: Build Native (${{ matrix.target }})
+    needs:
+      - verify
+      - detect_release
+    if: needs.detect_release.outputs.is_release == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            command: yarn build:native --target x86_64-unknown-linux-gnu --use-napi-cross
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            command: yarn build:native --target x86_64-unknown-linux-musl -x
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            command: yarn build:native --target aarch64-unknown-linux-gnu --use-napi-cross
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            command: yarn build:native --target aarch64-unknown-linux-musl -x
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            command: yarn build:native --target x86_64-apple-darwin
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            command: yarn build:native --target aarch64-apple-darwin
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            command: yarn build:native --target x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Zig
+        if: contains(matrix.target, 'musl')
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install cargo-zigbuild
+        if: contains(matrix.target, 'musl')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build native binding
+        run: ${{ matrix.command }}
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: native/lz4/*.node
+          if-no-files-found: error
+
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
-    needs: verify
+    needs:
+      - detect_release
+      - build_native
     if: |
-      (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
-      (github.event_name == 'workflow_dispatch' && inputs.workflow_action == 'publish_only')
+      needs.detect_release.outputs.is_release == 'true' &&
+      (
+        (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
+        (github.event_name == 'workflow_dispatch' && inputs.workflow_action == 'publish_only')
+      )
     permissions:
       contents: read
       id-token: write
@@ -156,36 +280,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect release merge
-        id: release_check
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.workflow_action }}" = "publish_only" ]; then
-            CURRENT_VERSION=$(node -p "require('./package.json').version")
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-            echo "new_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
-          PREVIOUS_VERSION=$(git show HEAD^:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" || echo "")
-
-          if [ -z "$PREVIOUS_VERSION" ]; then
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-            echo "new_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Setup Node.js for npm
-        if: steps.release_check.outputs.is_release == 'true'
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -194,29 +290,33 @@ jobs:
           token: ""
 
       - name: Ensure npm supports trusted publishing
-        if: steps.release_check.outputs.is_release == 'true'
         run: |
           npm --version
           npm i -g npm@^11.5.1
           npm --version
 
       - name: Install dependencies
-        if: steps.release_check.outputs.is_release == 'true'
         run: yarn install --frozen-lockfile
 
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: native/lz4
+
       - name: Build package
-        if: steps.release_check.outputs.is_release == 'true'
-        run: yarn build
+        run: |
+          rimraf dist
+          tsc -P tsconfig.build.json
 
       - name: Enforce OIDC trusted publishing mode
-        if: steps.release_check.outputs.is_release == 'true'
         run: |
           rm -f "$HOME/.npmrc"
           rm -f "$NPM_CONFIG_USERCONFIG"
           npm config delete //registry.npmjs.org/:_authToken || true
 
       - name: Publish to npm
-        if: steps.release_check.outputs.is_release == 'true'
         run: |
           unset NODE_AUTH_TOKEN
           unset NPM_TOKEN
