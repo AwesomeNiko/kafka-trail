@@ -43,7 +43,7 @@ const createTopicBatchEvent = <Payload extends KTTopicBatchRawMessage>(
     for (const data of payload) {
       validatePayload(data.value)
       const payloadToSend = validatorFn
-        ? validatorFn.encode(data.value as Payload[number]['value'])
+        ? validatorFn.encode(data.value)
         : ktEncode(data.value)
 
       topicBatchMessages.push({

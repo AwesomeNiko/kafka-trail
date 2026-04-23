@@ -7,7 +7,7 @@ type NativeLz4Binding = {
   decompress(input: Buffer): Buffer;
 }
 
-const binding = nativeBinding as NativeLz4Binding;
+const binding: NativeLz4Binding = nativeBinding;
 
 const lz4Codec = {
   compress(encoder: { buffer: ArrayBufferLike }) {
