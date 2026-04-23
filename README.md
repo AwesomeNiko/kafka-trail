@@ -59,6 +59,76 @@ yarn build
 
 This setup does not require `python`, `node-gyp`, or a C++ Node addon toolchain.
 
+### OpenTelemetry tracing
+
+`KTMessageQueue` no longer relies on its own runtime copy of `@opentelemetry/api`.
+
+- If you do not pass `otel`, the library works as usual, but without tracing.
+- If you want tracing, pass your application's OpenTelemetry API instance through `tracingSettings.otel`.
+- This is useful when your app already uses its own observability package and you want `kafka-trail` to join the same trace context.
+
+Example:
+
+```typescript
+import * as otel from "@opentelemetry/api";
+import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
+
+const kafkaBrokerUrls = ["localhost:19092"];
+
+const messageQueue = new KTMessageQueue({
+  tracingSettings: {
+    otel,
+    addPayloadToTrace: false,
+  },
+});
+
+await messageQueue.initProducer({
+  kafkaSettings: {
+    brokerUrls: kafkaBrokerUrls,
+    clientId: KafkaClientId.fromString("hostname"),
+    connectionTimeout: 30_000,
+  },
+  pureConfig: {},
+});
+```
+
+If your application uses a wrapper package like `observability`, pass the OpenTelemetry API object from there instead of importing a separate copy directly.
+
+If you prefer, you can also pass only the required OpenTelemetry fields explicitly:
+
+```typescript
+import {
+  context,
+  trace,
+  SpanKind,
+  SpanStatusCode,
+} from "@opentelemetry/api";
+import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
+
+const kafkaBrokerUrls = ["localhost:19092"];
+
+const messageQueue = new KTMessageQueue({
+  tracingSettings: {
+    otel: {
+      context,
+      trace,
+      SpanKind,
+      SpanStatusCode,
+    },
+    addPayloadToTrace: false,
+  },
+});
+
+await messageQueue.initProducer({
+  kafkaSettings: {
+    brokerUrls: kafkaBrokerUrls,
+    clientId: KafkaClientId.fromString("hostname"),
+    connectionTimeout: 30_000,
+  },
+  pureConfig: {},
+});
+```
+
 ### Publishing native binaries
 
 For local development, building the native module from source is enough. For npm distribution, the better long-term setup is to publish prebuilt `napi-rs` binaries per platform so library consumers do not need Rust installed.
