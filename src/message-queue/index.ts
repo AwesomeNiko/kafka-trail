@@ -1,6 +1,7 @@
 import { clearInterval } from "node:timers";
 
-import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import type { Span, SpanOptions } from "@opentelemetry/api";
+import type { Logger } from "pino";
 import { pino } from "pino";
 
 import { ArgumentIsRequired, NoHandlersError, ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
@@ -13,6 +14,12 @@ import type { KTTopicBatchPayload } from "../kafka/topic-batch.js";
 import { DLQKTTopic, type KTTopicEvent, type KTTopicPayloadWithMeta } from "../kafka/topic.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
+
+type KTOtelApi = Pick<
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+  typeof import("@opentelemetry/api"),
+  "context" | "trace" | "SpanKind" | "SpanStatusCode"
+>;
 
 type KTHandlerKafkaParams = {
   heartBeat: () => void,
@@ -47,16 +54,17 @@ class KTMessageQueue<Ctx extends object> {
   #registeredHandlers: Map<KafkaTopicName, KTHandler<any, Ctx & KafkaLogger>> = new Map();
   #ktProducer?: KTKafkaProducer;
   #ktConsumer?: KTKafkaConsumer;
-  #logger: Console | pino.Logger = console;
   #ctx: Ctx & KafkaLogger
   // Trace settings
   #addPayloadToTrace: boolean = false;
+  #otel: KTOtelApi | undefined
 
   constructor(params?: {
     ctx: () => Ctx & {
-      logger?: pino.Logger
+      logger?: Logger
     },
     tracingSettings?: {
+      otel?: KTOtelApi
       addPayloadToTrace: boolean
     }
   }) {
@@ -72,6 +80,7 @@ class KTMessageQueue<Ctx extends object> {
 
     this.#ctx = ctx as Ctx & KafkaLogger
     this.#addPayloadToTrace = params?.tracingSettings?.addPayloadToTrace ?? false
+    this.#otel = params?.tracingSettings?.otel
   }
 
   getConsumer(): KTKafkaConsumer | undefined {
@@ -104,12 +113,31 @@ class KTMessageQueue<Ctx extends object> {
 
   #extractErrorMessage(err: unknown): string {
     if (err instanceof Error) {
-      this.#logger.error(err)
+      this.#ctx.logger.error(err)
 
       return err.message
     }
 
     return ''
+  }
+
+  async #withSpan<T>(
+    name: string,
+    options: SpanOptions,
+    run: (span?: Span) => Promise<T>,
+  ): Promise<T> {
+    if (!this.#otel) {
+      return run();
+    }
+
+    const span = this.#otel.trace
+      .getTracer("kafka-trail", "1.0.0")
+      .startSpan(name, options);
+
+    return this.#otel.context.with(
+      this.#otel.trace.setSpan(this.#otel.context.active(), span),
+      async () => run(span),
+    );
   }
 
   async #publishToDlq(params: KTPublishToDlqParams<Ctx>) {
@@ -131,8 +159,6 @@ class KTMessageQueue<Ctx extends object> {
   }
 
   async #runHandlerWithTracing(params: KTRunHandlerWithTracingParams<Ctx>) {
-    const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
     const attributes = createHandlerTraceAttributes({
       topicName: params.topicName,
       partition: params.partition,
@@ -144,12 +170,10 @@ class KTMessageQueue<Ctx extends object> {
       },
     })
 
-    const handlerSpan = tracer.startSpan(`kafka-trail: handler ${params.topicName}`, {
-      kind: SpanKind.CONSUMER,
+    await this.#withSpan(`kafka-trail: handler ${params.topicName}`, {
+      kind: this.#otel?.SpanKind.CONSUMER ?? 0,
       attributes,
-    })
-
-    await context.with(trace.setSpan(context.active(), handlerSpan), async () => {
+    }, async (handlerSpan) => {
       try {
         await params.handler.run(params.batchedValues, this.#ctx, this, params.kafkaTopicParams)
       } catch (err) {
@@ -169,7 +193,7 @@ class KTMessageQueue<Ctx extends object> {
           throw err
         }
       } finally {
-        handlerSpan.end()
+        handlerSpan?.end()
       }
     })
   }
@@ -252,17 +276,13 @@ class KTMessageQueue<Ctx extends object> {
     await consumer.consumer.run({
       partitionsConsumedConcurrently: 1,
       eachMessage: async (eachMessagePayload) => {
-        const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-        const eachMessageSpan = tracer.startSpan(`kafka-trail: eachMessage`, {
-          kind: SpanKind.CONSUMER,
+        await this.#withSpan(`kafka-trail: eachMessage`, {
+          kind: this.#otel?.SpanKind.CONSUMER ?? 0,
           attributes: {
             'messaging.system': 'kafka',
             'messaging.destination': topicNames,
           },
-        })
-
-        await context.with(trace.setSpan(context.active(), eachMessageSpan), async () => {
+        }, async (eachMessageSpan) => {
           try {
             const { topic, message, partition }  = eachMessagePayload
 
@@ -299,7 +319,7 @@ class KTMessageQueue<Ctx extends object> {
               })
             }
           } finally {
-            eachMessageSpan.end()
+            eachMessageSpan?.end()
           }
         })
       },
@@ -314,17 +334,13 @@ class KTMessageQueue<Ctx extends object> {
       eachBatchAutoResolve: false,
       partitionsConsumedConcurrently: 1,
       eachBatch: async (eachBatchPayload) => {
-        const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-        const eachBatchSpan = tracer.startSpan(`kafka-trail: eachBatch`, {
-          kind: SpanKind.CONSUMER,
+        await this.#withSpan(`kafka-trail: eachBatch`, {
+          kind: this.#otel?.SpanKind.CONSUMER ?? 0,
           attributes: {
             'messaging.system': 'kafka',
             'messaging.destination': topicNames,
           },
-        })
-
-        await context.with(trace.setSpan(context.active(), eachBatchSpan), async () => {
+        }, async (eachBatchSpan) => {
           try {
             const { batch: { topic, messages, partition } } = eachBatchPayload
 
@@ -336,22 +352,19 @@ class KTMessageQueue<Ctx extends object> {
               const heartbeatIntervalMs =
                 consumer.heartBeatInterval - Math.floor(consumer.heartBeatInterval * consumer.heartbeatEarlyFactor)
               const heartBeatInterval = setInterval(() => {
-                const heartbeatTracer = trace.getTracer(`kafka-trail`, '1.0.0')
-                const heartbeatSpan = heartbeatTracer.startSpan(`kafka-trail: manual-heartbeat`, {
-                  kind: SpanKind.CONSUMER,
+                void this.#withSpan(`kafka-trail: manual-heartbeat`, {
+                  kind: this.#otel?.SpanKind.CONSUMER ?? 0,
                   attributes: {
                     'messaging.system': 'kafka',
                     'messaging.destination': topicNames,
                   },
-                })
-
-                void context.with(trace.setSpan(context.active(), heartbeatSpan), async () => {
+                }, async (heartbeatSpan) => {
                   try {
                     await eachBatchPayload.heartbeat()
                   } catch (err) {
-                    this.#logger.error(err)
+                    this.#ctx.logger.error(err)
                   } finally {
-                    heartbeatSpan.end()
+                    heartbeatSpan?.end()
                   }
                 })
               }, heartbeatIntervalMs)
@@ -401,7 +414,7 @@ class KTMessageQueue<Ctx extends object> {
 
             await eachBatchPayload.heartbeat()
           } finally {
-            eachBatchSpan.end()
+            eachBatchSpan?.end()
           }
         })
       },
@@ -429,7 +442,7 @@ class KTMessageQueue<Ctx extends object> {
       if (!this.#registeredHandlers.has(handler.topic.topicSettings.topic)) {
         this.#registeredHandlers.set(handler.topic.topicSettings.topic, handler);
       } else {
-        this.#logger.warn(`Attempting to register an already registered handler ${handler.topic.topicSettings.topic}`);
+        this.#ctx.logger.warn(`Attempting to register an already registered handler ${handler.topic.topicSettings.topic}`);
       }
     }
   }
@@ -441,13 +454,9 @@ class KTMessageQueue<Ctx extends object> {
       return Promise.reject(new ProducerNotInitializedError());
     }
 
-    const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-    const span = tracer.startSpan(`kafka-trail: publishSingleMessage ${topic.topicName}`, {
-      kind: SpanKind.PRODUCER,
-    })
-
-    return context.with(trace.setSpan(context.active(), span), async () => {
+    return this.#withSpan(`kafka-trail: publishSingleMessage ${topic.topicName}`, {
+      kind: this.#otel?.SpanKind.PRODUCER ?? 0,
+    }, async (span) => {
       try {
         const res = await producer.sendSingleMessage({
           topicName: topic.topicName,
@@ -455,13 +464,13 @@ class KTMessageQueue<Ctx extends object> {
           messageKey: topic.messageKey,
           headers: topic.meta ?? {},
         });
-        span.end()
+        span?.end()
 
         return res
       } catch (error) {
-        span.recordException(error as Error)
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) })
-        span.end()
+        span?.recordException(error as Error)
+        span?.setStatus({ code: this.#otel?.SpanStatusCode.ERROR ?? 2, message: String(error) })
+        span?.end()
         throw error
       }
     })
@@ -474,25 +483,21 @@ class KTMessageQueue<Ctx extends object> {
       return Promise.reject(new ProducerNotInitializedError());
     }
 
-    const tracer = trace.getTracer(`kafka-trail`, '1.0.0')
-
-    const span = tracer.startSpan(`kafka-trail: publishBatchMessages ${topic.topicName}`, {
-      kind: SpanKind.PRODUCER,
+    return this.#withSpan(`kafka-trail: publishBatchMessages ${topic.topicName}`, {
+      kind: this.#otel?.SpanKind.PRODUCER ?? 0,
       attributes: {
         messageSize: topic.messages.length,
       },
-    })
-
-    return context.with(trace.setSpan(context.active(), span), async () => {
+    }, async (span) => {
       try {
         const res = await producer.sendBatchMessages(topic);
-        span.end()
+        span?.end()
 
         return res
       } catch (error) {
-        span.recordException(error as Error)
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) })
-        span.end()
+        span?.recordException(error as Error)
+        span?.setStatus({ code: this.#otel?.SpanStatusCode.ERROR ?? 2, message: String(error) })
+        span?.end()
         throw error
       }
     })
