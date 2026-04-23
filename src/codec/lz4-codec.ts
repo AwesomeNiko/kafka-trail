@@ -10,12 +10,12 @@ type NativeLz4Binding = {
 const binding = nativeBinding as NativeLz4Binding;
 
 const lz4Codec = {
-  compress(encoder: Buffer) {
-    return binding.compress(encoder);
+  compress(encoder: { buffer: ArrayBufferLike }) {
+    return Buffer.from(binding.compress(Buffer.from(encoder.buffer)));
   },
 
   decompress<T>(buffer: Buffer) {
-    return binding.decompress(buffer) as T;
+    return Buffer.from(binding.decompress(buffer)) as T;
   },
 };
 
