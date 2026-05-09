@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { Ajv } from "ajv";
+import AjvModule from "ajv";
 import { z } from "zod";
 
 import { ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
@@ -15,6 +15,8 @@ import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
 import { KTMessageQueue } from "../message-queue/index.js";
 
 import { createKafkaMocks } from "./mocks/create-mocks.js";
+
+const Ajv = AjvModule.default
 
 // @ts-expect-error too much return arguments
 const kafkaProducerInitMock = jest.spyOn(KTKafkaProducer.prototype, 'init').mockImplementation(jest.fn);

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "@jest/globals";
-import { pino } from "pino";
+import pino from "pino";
 import { z } from "zod";
 
 import { KTHandler } from "../kafka/consumer-handler.js";

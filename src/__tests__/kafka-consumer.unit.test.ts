@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "@jest/globals";
-import { pino } from "pino";
+import pino from "pino";
 
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
 import { KafkaClientId, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
