@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "@jest/globals";
 import { CompressionTypes } from "kafkajs";
-import { pino } from "pino";
+import pino from "pino";
 
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";

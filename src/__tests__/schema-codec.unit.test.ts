@@ -1,10 +1,12 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { Ajv } from "ajv";
+import AjvModule from "ajv";
 
 import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createAjvCodecFromSchema } from "../libs/schema/adapters/ajv-adapter.js";
 import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
+
+const Ajv = AjvModule.default
 
 type BatchValue = {
   value: number

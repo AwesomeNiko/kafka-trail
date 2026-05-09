@@ -1,10 +1,12 @@
 import { describe, expect, it } from "@jest/globals";
-import { Ajv } from "ajv";
+import AjvModule from "ajv";
 import { z } from "zod";
 
 import { createAjvCodecFromSchema } from "../libs/schema/adapters/ajv-adapter.js";
 import { createZodCodec } from "../libs/schema/adapters/zod-adapter.js";
 import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
+
+const Ajv = AjvModule.default
 
 type TestPayload = {
   id: number

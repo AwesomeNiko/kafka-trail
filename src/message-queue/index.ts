@@ -1,8 +1,8 @@
 import { clearInterval } from "node:timers";
 
 import type { Span, SpanOptions } from "@opentelemetry/api";
+import pino from "pino";
 import type { Logger } from "pino";
-import { pino } from "pino";
 
 import { ArgumentIsRequired, NoHandlersError, ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
 import type { KTHandler } from "../kafka/consumer-handler.js";

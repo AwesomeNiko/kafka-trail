@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "@jest/globals";
-import { pino } from "pino";
+import pino from "pino";
 
 import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";

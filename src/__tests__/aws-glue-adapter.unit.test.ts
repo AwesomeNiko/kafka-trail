@@ -1,10 +1,12 @@
 import { GetSchemaVersionCommand } from "@aws-sdk/client-glue";
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { Ajv } from "ajv";
+import AjvModule from "ajv";
 import { z } from "zod";
 
 import { clearAwsGlueSchemaCache, createAwsGlueCodec, createAwsGlueSchemaRegistryAdapter, type AwsGlueClientLike, type AwsGlueResolvedSchemaCacheEntry, type AwsGlueSchemaFetcherLike } from "../libs/schema/adapters/aws-glue-adapter.js";
 import { KTSchemaRegistryError, KTSchemaValidationError } from "../libs/schema/schema-errors.js";
+
+const Ajv = AjvModule.default
 
 type GluePayload = {
   id: number
