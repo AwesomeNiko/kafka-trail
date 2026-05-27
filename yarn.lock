@@ -49,10 +49,10 @@
     "@smithy/util-utf8" "^2.0.0"
     tslib "^2.6.2"
 
-"@aws-sdk/client-glue@3.1054.0":
-  version "3.1054.0"
-  resolved "https://registry.yarnpkg.com/@aws-sdk/client-glue/-/client-glue-3.1054.0.tgz#99df57648a88913800472cb102598088937ef03c"
-  integrity sha512-5VzHaDTfbPAOQ6KdFuG+aU/OPv3/MWZFsvm6hR8S2mYroVl4LFfq/bnDquARESkZsUK/ht18TQ4xgpsQ8GsnjA==
+"@aws-sdk/client-glue@3.1055.0":
+  version "3.1055.0"
+  resolved "https://registry.yarnpkg.com/@aws-sdk/client-glue/-/client-glue-3.1055.0.tgz#94588e230c29ae69aef69246dac3dfc3ca8070a4"
+  integrity sha512-Wiumth90tcgsdcikTXlx9e/+5MkJ9AY5e0c49/pXnx3C56DUHxAx2iJGCp7V0ZgwFK3WKE7eycugEm3a8KrE4A==
   dependencies:
     "@aws-crypto/sha256-browser" "5.2.0"
     "@aws-crypto/sha256-js" "5.2.0"
@@ -1104,9 +1104,9 @@
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
 "@napi-rs/cli@^3.6.2":
-  version "3.6.2"
-  resolved "https://registry.yarnpkg.com/@napi-rs/cli/-/cli-3.6.2.tgz#095b5ac995b801ff15bca7f08da4cb01e38066db"
-  integrity sha512-jy5rABUh9tbE/vPRzw9kGzGuqZiVslyDQUV8LkvjzqVX/oJMN7g0U1uhtr9L3W1H+iRM/urXHXUf+CE4n8FvLA==
+  version "3.7.0"
+  resolved "https://registry.yarnpkg.com/@napi-rs/cli/-/cli-3.7.0.tgz#6387c15aa64c06a450b73459e19e02d1cb1a3c32"
+  integrity sha512-3d3+rmxlOIV/G1zPWeX4PCxuYnhcCQM2BvY9rtimC8RO0dFR9gtYP+Grov+WoduZtfWRj5N1XvytWeRxxCk5zw==
   dependencies:
     "@inquirer/prompts" "^8.0.0"
     "@napi-rs/cross-toolchain" "^1.0.3"
@@ -1114,7 +1114,7 @@
     "@octokit/rest" "^22.0.1"
     clipanion "^4.0.0-rc.4"
     colorette "^2.0.20"
-    emnapi "^1.9.1"
+    emnapi "^1.10.0"
     es-toolkit "^1.41.0"
     js-yaml "^4.1.0"
     obug "^2.0.0"
@@ -2531,7 +2531,7 @@ emittery@^0.13.1:
   resolved "https://registry.yarnpkg.com/emittery/-/emittery-0.13.1.tgz#c04b8c3457490e0847ae51fced3af52d338e3dad"
   integrity sha512-DeWwawk6r5yR9jFgnDKYt4sLS0LmHJJi3ZOnb5/JdbYwj3nW+FxQnHIjhBKz8YLC7oRNPVM9NQ47I3CVx34eqQ==
 
-emnapi@^1.9.1:
+emnapi@^1.10.0:
   version "1.10.0"
   resolved "https://registry.yarnpkg.com/emnapi/-/emnapi-1.10.0.tgz#ea2e87b2ea51d214a28794b1d20628cac9386348"
   integrity sha512-swoyZjupDvLoe/KC3HZ4SY1JUN+tviT6eOZ3Px28TZAYdBHtRIiMWWrIUUH+2/9CYY4fNTID1YhYZ+kdFHszHg==
