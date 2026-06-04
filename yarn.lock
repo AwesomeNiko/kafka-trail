@@ -49,10 +49,10 @@
     "@smithy/util-utf8" "^2.0.0"
     tslib "^2.6.2"
 
-"@aws-sdk/client-glue@3.1060.0":
-  version "3.1060.0"
-  resolved "https://registry.yarnpkg.com/@aws-sdk/client-glue/-/client-glue-3.1060.0.tgz#18d6504c10a85907bc47b2e1ba097fd682abfac4"
-  integrity sha512-lKtDb1CYaeLy9cOer2KWDEoNdi36wannz68FcWO0p0o8mtjuwSgGLa+T5OmfvaKUdXYK86Tw4P8yk6nNcpah6Q==
+"@aws-sdk/client-glue@3.1061.0":
+  version "3.1061.0"
+  resolved "https://registry.yarnpkg.com/@aws-sdk/client-glue/-/client-glue-3.1061.0.tgz#8d1bcad8371a31b33e55b096eeb6ad2a88ff671d"
+  integrity sha512-rCfJRYwldPUAwZtAmu2i/XEwf1Z4e2qhBhUofPMkdmEoarzTJiVwGvmgw38Zf9p3QOVus0oQlc099sjpJfYr7g==
   dependencies:
     "@aws-crypto/sha256-browser" "5.2.0"
     "@aws-crypto/sha256-js" "5.2.0"
