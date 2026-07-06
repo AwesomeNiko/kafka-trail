@@ -22,7 +22,7 @@ type KTOtelApi = Pick<
 >;
 
 type KTHandlerKafkaParams = {
-  heartBeat: () => void,
+  heartBeat: () => Promise<void>,
   partition: number,
   lastOffset: string | undefined,
   resolveOffset?: (offset: string) => void,
