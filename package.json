@@ -41,7 +41,7 @@
     "dev": "npm run build && npm run start"
   },
   "dependencies": {
-    "@aws-sdk/client-glue": "3.1096.0",
+    "@aws-sdk/client-glue": "3.1103.0",
     "kafkajs": "^2.2.4",
     "pino": "10.3.1",
     "uuid": "14.0.1"
@@ -50,12 +50,12 @@
     "@eslint/eslintrc": "^3.3.6",
     "@eslint/js": "^10.0.1",
     "@jest/globals": "^30.4.1",
-    "@napi-rs/cli": "^3.7.4",
+    "@napi-rs/cli": "^3.8.2",
     "@opentelemetry/api": "^1.9.1",
     "@types/jest": "^30.0.0",
     "@types/node": "25.9.3",
-    "@typescript-eslint/eslint-plugin": "8.65.0",
-    "@typescript-eslint/parser": "8.65.0",
+    "@typescript-eslint/eslint-plugin": "8.66.0",
+    "@typescript-eslint/parser": "8.66.0",
     "ajv": "^8.18.0",
     "eslint": "10.8.0",
     "eslint-config-prettier": "10.1.8",
