@@ -39,7 +39,7 @@ permissions:
 
 jobs:
   verify:
-    name: Lint and Unit Test
+    name: Lint and Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -65,6 +65,12 @@ jobs:
 
       - name: Run unit tests
         run: bun run test:unit
+
+      - name: Build native LZ4 codec
+        run: bun run build:native
+
+      - name: Run integration tests with Redpanda
+        run: bun run test:int
 
   detect_release:
     name: Detect Release

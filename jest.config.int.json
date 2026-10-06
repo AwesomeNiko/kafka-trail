@@ -1,6 +1,8 @@
 {
   "preset": "ts-jest/presets/default-esm",
   "testEnvironment": "node",
+  "globalSetup": "<rootDir>/src/__tests__/infrastructure/global-setup.ts",
+  "globalTeardown": "<rootDir>/src/__tests__/infrastructure/global-teardown.ts",
   "transform": {
     "^.+\\.ts?$": [
       "ts-jest",
@@ -11,7 +13,6 @@
   },
   "extensionsToTreatAsEsm": [".ts"],
   "moduleNameMapper": {
-    "^../../native/lz4/index\\.cjs$": "<rootDir>/src/__tests__/mocks/lz4-native.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
   "verbose": true,

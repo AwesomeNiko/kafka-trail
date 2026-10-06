@@ -7,12 +7,7 @@ import { UnableDecreasePartitionsError } from "../custom-errors/kafka-errors.js"
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 
-const getIntTestConfig = () => {
-  return {
-    brokerUrl: process.env.KAFKA_BROKER_URL ?? "localhost:19092",
-    timeoutMs: Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000),
-  };
-};
+import { getIntTestConfig, INTEGRATION_TEST_TIMEOUT_MS } from "./infrastructure/kafka.js";
 
 describe("Kafka producer integration", () => {
   it("should create topic and publish single message", async () => {
@@ -49,7 +44,7 @@ describe("Kafka producer integration", () => {
     } finally {
       await kafkaProducer.destroy();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should reject partition decrease for existing topic", async () => {
     const { brokerUrl } = getIntTestConfig();
@@ -84,7 +79,7 @@ describe("Kafka producer integration", () => {
     } finally {
       await kafkaProducer.destroy();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should send batch messages", async () => {
     const { brokerUrl } = getIntTestConfig();
@@ -129,7 +124,7 @@ describe("Kafka producer integration", () => {
     } finally {
       await kafkaProducer.destroy();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should keep topic partitions unchanged when requested partitions equal current value", async () => {
     const { brokerUrl } = getIntTestConfig();
@@ -164,7 +159,7 @@ describe("Kafka producer integration", () => {
     } finally {
       await kafkaProducer.destroy();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should increase partitions for existing topic", async () => {
     const { brokerUrl } = getIntTestConfig();
@@ -199,5 +194,5 @@ describe("Kafka producer integration", () => {
     } finally {
       await kafkaProducer.destroy();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 });

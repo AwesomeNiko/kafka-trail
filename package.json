@@ -53,6 +53,7 @@
     "@jest/globals": "^30.5.2",
     "@napi-rs/cli": "^3.10.6",
     "@opentelemetry/api": "^1.9.1",
+    "@testcontainers/redpanda": "^12.2.0",
     "@types/jest": "^30.0.0",
     "@types/node": "25.9.3",
     "@typescript-eslint/eslint-plugin": "8.71.0",

@@ -13,6 +13,8 @@ import { createZodCodec } from "../libs/schema/adapters/zod-adapter.js";
 import { KTSchemaValidationError } from "../libs/schema/schema-errors.js";
 import { KTMessageQueue } from "../message-queue/index.js";
 
+import { getIntTestConfig, INTEGRATION_TEST_TIMEOUT_MS } from "./infrastructure/kafka.js";
+
 type ZodIntPayload = {
   fieldForPayload: number
 }
@@ -20,13 +22,6 @@ type ZodIntPayload = {
 const ZOD_INT_SCHEMA = z.object({
   fieldForPayload: z.number(),
 })
-
-const getIntTestConfig = () => {
-  return {
-    brokerUrl: process.env.KAFKA_BROKER_URL ?? "localhost:19092",
-    timeoutMs: Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000),
-  };
-};
 
 describe("Consumer handlers integration", () => {
   it("should validate producer payload with zod schema in integration flow", async () => {
@@ -73,7 +68,7 @@ describe("Consumer handlers integration", () => {
     } finally {
       await producerMq.destroyAll();
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should validate consumer payload with zod schema in integration flow", async () => {
     const { brokerUrl, timeoutMs } = getIntTestConfig();
@@ -158,7 +153,7 @@ describe("Consumer handlers integration", () => {
         consumerMq.destroyAll(),
       ]);
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should publish and consume message through kafka", async () => {
     const { brokerUrl, timeoutMs } = getIntTestConfig();
@@ -241,7 +236,7 @@ describe("Consumer handlers integration", () => {
         consumerMq.destroyAll(),
       ]);
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should consume batch messages in batch mode", async () => {
     const { brokerUrl, timeoutMs } = getIntTestConfig();
@@ -324,7 +319,7 @@ describe("Consumer handlers integration", () => {
         consumerMq.destroyAll(),
       ]);
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should limit consumed batch size and provide resolveOffset in batch mode", async () => {
     const { brokerUrl, timeoutMs } = getIntTestConfig();
@@ -422,7 +417,7 @@ describe("Consumer handlers integration", () => {
         consumerMq.destroyAll(),
       ]);
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("should publish failed message to DLQ when handler throws and createDLQ is enabled", async () => {
     const { brokerUrl, timeoutMs } = getIntTestConfig();
@@ -548,5 +543,5 @@ describe("Consumer handlers integration", () => {
         consumerMq.destroyAll(),
       ]);
     }
-  }, Number(process.env.KAFKA_INT_TEST_TIMEOUT_MS ?? 10_000));
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 });

@@ -695,6 +695,30 @@ It's planned to be removed in the next version:
 - `Deprecated. use CreateKTTopic(...)`
 - `Deprecated. use CreateKTTopicBatch(...)`
 
+## Testing
+
+Run unit tests with `bun run test:unit`.
+
+Integration tests use [Testcontainers Redpanda](https://node.testcontainers.org/modules/redpanda/).
+They start one temporary broker on dynamically assigned ports for the test run and remove it afterward.
+Docker must already be running. A separately started Kafka or Redpanda broker is not required.
+
+For Colima, set its existing Docker socket before running tests ([runtime setup](https://node.testcontainers.org/supported-container-runtimes/#colima)):
+
+```bash
+export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+```
+
+```bash
+bun run build:native
+bun run test:int
+```
+
+Integration tests use the real native LZ4 codec. Unit tests use a mock codec.
+The default timeout for each integration test is 30 seconds; set `KAFKA_INT_TEST_TIMEOUT_MS` to override it.
+CI builds the native codec and runs both test suites.
+
 ## Contributing
 Contributions are welcome! If you’d like to improve this library:
 
