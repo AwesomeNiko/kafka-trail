@@ -69,7 +69,7 @@ jobs:
       - name: Build native LZ4 codec
         run: bun run build:native
 
-      - name: Run integration tests with Redpanda
+      - name: Run integration tests with Redpanda and Redis
         run: bun run test:int
 
   detect_release:

@@ -1,18 +1,23 @@
 import pino from "pino";
 import type { Logger } from "pino";
 
+import type { KTJobHandler } from "../bullmq/consumer-handler.js";
+import { BullMQBackend, type KTBullMQConsumerConfig, type KTBullMQProducerConfig } from "../bullmq/index.js";
+import type { KTJobPayload, KTJobScheduler } from "../bullmq/job.js";
 import type { KTHandler } from "../kafka/consumer-handler.js";
 import { KafkaBackend } from "../kafka/index.js";
-import type { KafkaBrokerConfig, KafkaLogger } from "../kafka/kafka-broker.js";
+import type { KafkaBrokerConfig } from "../kafka/kafka-broker.js";
 import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
 import type { KTTopicBatchPayload } from "../kafka/topic-batch.js";
 import type { KTTopicEvent, KTTopicPayloadWithMeta } from "../kafka/topic.js";
 import type { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import type { KTLogger } from "../libs/helpers/logger.js";
 import { KTTracing, type KTTracingSettings } from "../libs/helpers/tracing.js";
 
 class KTMessageQueue<Ctx extends object> {
   #kafkaBackend: KafkaBackend<Ctx>;
-  #ctx: Ctx & KafkaLogger;
+  #bullMQBackend: BullMQBackend<Ctx>;
+  #ctx: Ctx & KTLogger;
   #tracing: KTTracing;
 
   constructor(params?: {
@@ -24,16 +29,21 @@ class KTMessageQueue<Ctx extends object> {
     let ctx = params?.ctx()
 
     if (!ctx) {
-      ctx = {} as Ctx & KafkaLogger
+      ctx = {} as Ctx & KTLogger
     }
 
     if (!ctx.logger) {
       ctx.logger = pino()
     }
 
-    this.#ctx = ctx as Ctx & KafkaLogger
+    this.#ctx = ctx as Ctx & KTLogger
     this.#tracing = new KTTracing(params?.tracingSettings)
     this.#kafkaBackend = new KafkaBackend({
+      ctx: this.#ctx,
+      publisher: this,
+      tracing: this.#tracing,
+    })
+    this.#bullMQBackend = new BullMQBackend({
       ctx: this.#ctx,
       publisher: this,
       tracing: this.#tracing,
@@ -62,8 +72,12 @@ class KTMessageQueue<Ctx extends object> {
 
   async destroyAll() {
     await Promise.all([
-      this.destroyProducer(),
       this.destroyConsumer(),
+      this.destroyBullMQConsumer(),
+    ])
+    await Promise.all([
+      this.destroyProducer(),
+      this.destroyBullMQProducer(),
     ])
   }
 
@@ -83,7 +97,7 @@ class KTMessageQueue<Ctx extends object> {
     return this.#kafkaBackend.getRegisteredHandler(topic);
   }
 
-  registerHandlers<T extends object>(mqHandlers: KTHandler<T, Ctx & KafkaLogger>[]) {
+  registerHandlers<T extends object>(mqHandlers: KTHandler<T, Ctx & KTLogger>[]) {
     this.#kafkaBackend.registerHandlers(mqHandlers);
   }
 
@@ -93,6 +107,55 @@ class KTMessageQueue<Ctx extends object> {
 
   publishBatchMessages(topic: KTTopicBatchPayload) {
     return this.#kafkaBackend.publishBatchMessages(topic);
+  }
+
+  initBullMQProducer(params: KTBullMQProducerConfig) {
+    return this.#bullMQBackend.initProducer(params);
+  }
+
+  initBullMQConsumer(params: KTBullMQConsumerConfig) {
+    return this.#bullMQBackend.initConsumer(params);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  registerJobHandlers(handlers: KTJobHandler<any, Ctx & KTLogger>[]) {
+    this.#bullMQBackend.registerHandlers(handlers);
+  }
+
+  getRegisteredJobHandler(name: string) {
+    return this.#bullMQBackend.getRegisteredHandler(name);
+  }
+
+  getBullMQQueue(name: string) {
+    return this.#bullMQBackend.getQueue(name);
+  }
+
+  getBullMQWorker(name: string) {
+    return this.#bullMQBackend.getWorker(name);
+  }
+
+  publishJob(job: KTJobPayload) {
+    return this.#bullMQBackend.publishJob(job);
+  }
+
+  publishBatchJobs(jobs: KTJobPayload[]) {
+    return this.#bullMQBackend.publishBatchJobs(jobs);
+  }
+
+  upsertJobScheduler(params: KTJobScheduler) {
+    return this.#bullMQBackend.upsertJobScheduler(params);
+  }
+
+  removeJobScheduler(params: { jobName: string, schedulerId: string }) {
+    return this.#bullMQBackend.removeJobScheduler(params);
+  }
+
+  destroyBullMQProducer() {
+    return this.#bullMQBackend.destroyProducer();
+  }
+
+  destroyBullMQConsumer() {
+    return this.#bullMQBackend.destroyConsumer();
   }
 }
 

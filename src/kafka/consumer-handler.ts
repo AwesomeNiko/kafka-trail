@@ -1,10 +1,10 @@
+import type { KTPublisher } from "../message-queue/publisher.js";
+
 import type { KafkaLogger } from "./kafka-broker.js";
 import type { KTTopicBatchEvent } from "./topic-batch.js";
-import type { KTTopicEvent, KTTopicPayloadWithMeta } from "./topic.js";
+import type { KTTopicEvent } from "./topic.js";
 
-export type KTHandlerPublisher = {
-  publishSingleMessage: (topic: KTTopicPayloadWithMeta) => Promise<void>
-}
+export type KTHandlerPublisher = KTPublisher
 
 export type KTRun<Payload extends object, Ctx extends object> = (
   payload: Payload[],
