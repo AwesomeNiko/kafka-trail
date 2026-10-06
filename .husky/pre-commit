@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
-yarn lint
-yarn build
-yarn test:unit
+bun run lint
+bun run build
+bun run test:unit
