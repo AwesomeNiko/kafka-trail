@@ -224,6 +224,54 @@ describe("aws glue schema adapter", () => {
     expect(codecSecond.decode(JSON.stringify({ id: 11 }))).toEqual({ id: 11 })
   })
 
+  it.each(["default", "shared"])("should isolate adapter schemas in the %s cache", async (cacheType) => {
+    const cacheStore = new Map<string, AwsGlueResolvedSchemaCacheEntry>()
+    const cache = cacheType === "shared" ? { store: cacheStore } : {}
+    const sendFirst = jest.fn<AwsGlueClientLike["send"]>().mockResolvedValue({
+      SchemaDefinition: JSON.stringify(GLUE_SCHEMA),
+      SchemaVersionId: "first-adapter-version",
+      VersionNumber: 1,
+      DataFormat: "JSON",
+    })
+    const sendSecond = jest.fn<AwsGlueClientLike["send"]>().mockResolvedValue({
+      SchemaDefinition: JSON.stringify({ ...GLUE_SCHEMA, properties: { id: { type: "string" } } }),
+      SchemaVersionId: "second-adapter-version",
+      VersionNumber: 1,
+      DataFormat: "JSON",
+    })
+    const firstAdapter = await createAwsGlueSchemaRegistryAdapter({
+      region: "us-east-1",
+      client: { send: sendFirst },
+    })
+    const secondAdapter = await createAwsGlueSchemaRegistryAdapter({
+      region: "eu-west-1",
+      client: { send: sendSecond },
+    })
+    const schema = { registryName: "same-registry", schemaName: "same-schema", schemaVersionNumber: 1 }
+    const firstParams = { glue: firstAdapter, ajv: new Ajv(), schema, cache }
+    const secondParams = { glue: secondAdapter, ajv: new Ajv(), schema, cache }
+    const firstCodec = await createAwsGlueCodec<GluePayload>(firstParams)
+    const secondCodec = await createAwsGlueCodec<{ id: string }>(secondParams)
+    await createAwsGlueCodec<GluePayload>(firstParams)
+    await createAwsGlueCodec<{ id: string }>(secondParams)
+
+    expect(sendFirst).toHaveBeenCalledTimes(1)
+    expect(sendSecond).toHaveBeenCalledTimes(1)
+    expect(firstCodec.decode(JSON.stringify({ id: 1 }))).toEqual({ id: 1 })
+    expect(secondCodec.decode(JSON.stringify({ id: "second" }))).toEqual({ id: "second" })
+    expect(() => firstCodec.decode(JSON.stringify({ id: "second" }))).toThrow(KTSchemaValidationError)
+    expect(() => secondCodec.decode(JSON.stringify({ id: 1 }))).toThrow(KTSchemaValidationError)
+    expect(firstCodec.schemaMeta?.schemaId).toBe("first-adapter-version")
+    expect(secondCodec.schemaMeta?.schemaId).toBe("second-adapter-version")
+
+    clearAwsGlueSchemaCache(cacheType === "shared" ? cacheStore : undefined)
+    await createAwsGlueCodec<GluePayload>(firstParams)
+    await createAwsGlueCodec<{ id: string }>(secondParams)
+
+    expect(sendFirst).toHaveBeenCalledTimes(2)
+    expect(sendSecond).toHaveBeenCalledTimes(2)
+  })
+
   it("should reuse cached schema across ajv and zod validators", async () => {
     const getSchema = jest.fn(() => {
       return Promise.resolve({

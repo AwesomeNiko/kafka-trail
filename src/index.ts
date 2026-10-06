@@ -64,3 +64,24 @@ export {
   KTSchemaValidationError,
   KTSchemaRegistryError,
 }
+export { CreateKTJob } from "./bullmq/job.js"
+export type {
+  KTJobEvent,
+  KTJobSettings,
+  KTJobOptions,
+  KTJobMeta,
+  KTJobData,
+  KTJobPayload,
+  KTJobScheduler,
+  KTPayloadFromJob,
+} from "./bullmq/job.js"
+export { KTJobHandler } from "./bullmq/consumer-handler.js"
+export type {
+  KTJobRun,
+  KTJobHandlerParams,
+  KTJobHandlerOptions,
+} from "./bullmq/consumer-handler.js"
+export type { KTBullMQProducerConfig, KTBullMQConsumerConfig } from "./bullmq/index.js"
+export { BullMQProducerNotInitializedError, NoJobHandlersError } from "./custom-errors/bullmq-errors.js"
+export type { KTPublisher } from "./message-queue/publisher.js"
+export type { KTLogger } from "./libs/helpers/logger.js"

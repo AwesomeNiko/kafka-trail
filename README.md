@@ -1,8 +1,8 @@
 # Kafka-trail - MessageQueue Library
 
-A Node.js library for managing message queues with Kafka, designed to simplify creating, using, and managing Kafka topics with producers and consumers.
+A Node.js library for managing Kafka messages and BullMQ jobs through one facade, with typed definitions and handlers.
 
-### Based on [Kafkajs](https://kafka.js.org/)
+### Based on [KafkaJS](https://kafka.js.org/) and [BullMQ](https://docs.bullmq.io/)
 
 ---
 
@@ -16,6 +16,8 @@ A Node.js library for managing message queues with Kafka, designed to simplify c
 - Setup consumer handlers
 - Compressing ([see](https://kafka.js.org/docs/producing#compression))
 - Supports custom encoders/decoders.
+- Publish and consume BullMQ jobs with the same application context and publisher as Kafka handlers.
+- BullMQ retries, delayed jobs, concurrency and job schedulers.
 
 ---
 
@@ -142,7 +144,113 @@ Recommended direction:
 That is the standard `napi-rs` distribution model and avoids local compilation for end users.
 
 ## Usage
-Here’s an example of how to use the `@awesomeniko/kafka-trail` library in your project.
+
+### BullMQ jobs
+
+Each job definition has its own BullMQ queue. Register handlers before initializing the consumer. Kafka and BullMQ can run independently or together on the same `KTMessageQueue` instance.
+
+```typescript
+import { CreateKTJob, KTJobHandler, KTMessageQueue } from "@awesomeniko/kafka-trail";
+
+const SendEmail = CreateKTJob<{ email: string }>({
+  name: "send.email",
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1000 },
+    removeOnComplete: { age: 3600 },
+    removeOnFail: { age: 86400 },
+  },
+});
+
+const mq = new KTMessageQueue({
+  ctx: () => ({ sendEmail: async (email: string) => { /* application code */ } }),
+});
+
+mq.registerJobHandlers([
+  KTJobHandler({
+    job: SendEmail,
+    options: { concurrency: 5 },
+    run: async ([payload], ctx, publisher, { job, signal }) => {
+      if (!payload) return;
+      await ctx.sendEmail(payload.email);
+      await job.updateProgress(100);
+      // publisher can publish both Kafka messages and BullMQ jobs.
+      // signal is BullMQ's cancellation signal when available.
+    },
+  }),
+]);
+
+const redis = { connection: { host: "localhost", port: 6379 }, prefix: "my-service" };
+await mq.initBullMQProducer(redis);
+await mq.initBullMQConsumer(redis);
+
+const job = await mq.publishJob(SendEmail({ email: "user@example.com" }, {
+  jobId: "email-42",
+  delay: 1000,
+  meta: { traceId: "request-42" },
+}));
+
+await mq.publishBatchJobs([
+  SendEmail({ email: "first@example.com" }),
+  SendEmail({ email: "second@example.com" }),
+]);
+
+await mq.destroyAll();
+```
+
+Like `KTHandler`, `KTJobHandler.run` receives `(payloads, ctx, publisher, params)`. BullMQ delivers one job at a time, so `payloads` contains one decoded payload. Its fourth argument exposes the native BullMQ `job` (ID, attempts, progress) and cancellation `signal`. Throwing from a handler lets BullMQ retry the job according to `attempts` and `backoff`; exhausted jobs remain failed unless `removeOnFail` is configured.
+
+`CreateKTJob(settings, codec)` accepts the same JSON, Zod, AJV and custom codecs as Kafka topic definitions. Metadata includes an automatically generated `traceId` when none is supplied. Job options override definition defaults; definition defaults override producer defaults. `jobId` uses BullMQ's deduplication behavior while that ID remains in the queue. Bulk publication is atomic within each queue; publication across different queues is independent.
+
+Both initializers accept BullMQ options with Redis connection settings. Producer and consumer must use the same Redis database and `prefix`. Worker options on a handler override consumer defaults. `getBullMQQueue(name)` returns a native queue after its first publication or scheduler operation; `getBullMQWorker(name)` returns the running worker. The library owns and closes its Redis connections. `destroyAll()` waits for active handlers before closing producers.
+
+### BullMQ schedulers
+
+Schedulers use the same job definition and handler as ordinary jobs. Initialize the BullMQ producer to manage schedules and the consumer to execute them. Upserting the same scheduler ID within a queue updates that schedule.
+
+```typescript
+import { CreateKTJob, KTJobHandler, KTMessageQueue } from "@awesomeniko/kafka-trail";
+
+const RefreshCache = CreateKTJob<{ scope: string }>({ name: "refresh.cache" });
+
+const mq = new KTMessageQueue({
+  ctx: () => ({ refreshCache: async (scope: string) => { /* application code */ } }),
+});
+
+mq.registerJobHandlers([
+  KTJobHandler({
+    job: RefreshCache,
+    run: async ([payload], ctx) => {
+      if (!payload) return;
+      await ctx.refreshCache(payload.scope);
+    },
+  }),
+]);
+
+const redis = { connection: { host: "localhost", port: 6379 }, prefix: "my-service" };
+await mq.initBullMQProducer(redis);
+await mq.initBullMQConsumer(redis);
+
+await mq.upsertJobScheduler({
+  schedulerId: "daily-refresh",
+  repeat: { pattern: "0 0 * * *", tz: "UTC" },
+  job: RefreshCache({ scope: "all" }),
+});
+
+await mq.upsertJobScheduler({
+  schedulerId: "frequent-refresh",
+  repeat: { every: 60_000 },
+  job: RefreshCache({ scope: "recent" }),
+});
+
+await mq.removeJobScheduler({
+  jobName: RefreshCache.jobSettings.name,
+  schedulerId: "daily-refresh",
+});
+```
+
+Scheduler templates cannot use `jobId`, `delay` or `deduplication`; BullMQ controls scheduled job IDs and timing. Closing a queue does not remove persistent jobs or schedules from Redis.
+
 ### If you want only producer:
 
 ```typescript
@@ -694,6 +802,31 @@ Current versions intentionally throw runtime errors if these APIs are invoked (f
 It's planned to be removed in the next version:
 - `Deprecated. use CreateKTTopic(...)`
 - `Deprecated. use CreateKTTopicBatch(...)`
+
+## Testing
+
+Run unit tests with `bun run test:unit`.
+
+Integration tests use [Testcontainers Redpanda](https://node.testcontainers.org/modules/redpanda/) and [Testcontainers Redis](https://node.testcontainers.org/modules/redis/).
+They start one temporary broker and one Redis container on dynamically assigned ports for the test run and remove them afterward.
+Docker must already be running. Separately started Kafka, Redpanda or Redis services are not required.
+
+For Colima, set its existing Docker socket before running tests ([runtime setup](https://node.testcontainers.org/supported-container-runtimes/#colima)):
+
+```bash
+export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+```
+
+```bash
+bun run build:native
+bun run test:int
+```
+
+Integration tests use the real native LZ4 codec. Unit tests use a mock codec.
+BullMQ integration tests cover publication through handlers, bulk jobs, retries, delays, schema validation, schedulers, graceful shutdown and Kafka → BullMQ → Kafka delivery.
+The default timeout for each integration test is 30 seconds; set `KAFKA_INT_TEST_TIMEOUT_MS` to override it.
+CI builds the native codec and runs both test suites.
 
 ## Contributing
 Contributions are welcome! If you’d like to improve this library:

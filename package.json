@@ -1,7 +1,7 @@
 {
   "name": "@awesomeniko/kafka-trail",
   "version": "0.3.8",
-  "description": "A Node.js library for managing message queue with Kafka",
+  "description": "A Node.js library for managing Kafka messages and BullMQ jobs",
   "type": "module",
   "packageManager": "bun@1.4.0",
   "publishConfig": {
@@ -9,6 +9,8 @@
   },
   "keywords": [
     "Kafka",
+    "BullMQ",
+    "Redis",
     "Kafkajs",
     "Message queue",
     "Service",
@@ -43,6 +45,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-glue": "3.1146.0",
+    "bullmq": "^6.3.4",
+    "ioredis": "^5.11.1",
     "kafkajs": "^2.2.4",
     "pino": "10.4.0",
     "uuid": "14.0.2"
@@ -53,6 +57,8 @@
     "@jest/globals": "^30.5.2",
     "@napi-rs/cli": "^3.10.6",
     "@opentelemetry/api": "^1.9.1",
+    "@testcontainers/redis": "^12.2.0",
+    "@testcontainers/redpanda": "^12.2.0",
     "@types/jest": "^30.0.0",
     "@types/node": "25.9.3",
     "@typescript-eslint/eslint-plugin": "8.71.0",

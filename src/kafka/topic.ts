@@ -39,7 +39,7 @@ export type DLQPayload<T> = {
   originalPartition: number;
   originalOffset: string | undefined;
   key: KafkaMessageKey | null;
-  value: T;
+  value: T[];
   errorMessage: string;
   failedAt: number;
 }

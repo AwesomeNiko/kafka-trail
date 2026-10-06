@@ -6,7 +6,7 @@ import { ktDecode, ktEncode, type KTTopicPayloadParser } from "../libs/helpers/d
 import type { DLQPayload , KTTopicEvent,  KTTopicSettings } from "./topic.js";
 import { DLQKTTopic  } from "./topic.js";
 
-export type KTTopicBatchRawMessage = Array<Omit<KTTopicBatchMessage, 'value'> & {value: object}>
+export type KTTopicBatchRawMessage<Payload extends object = object> = Array<Omit<KTTopicBatchMessage, 'value'> & {value: Payload}>
 
 export type KTTopicBatchMessage = {
   value: string
@@ -84,13 +84,13 @@ export const CreateKTTopicBatch = <Payload extends KTTopicBatchRawMessage>(
   validatorFn?: KTTopicPayloadParser<Payload[number]['value']>,
 ): {
   BaseTopic: KTTopicBatchEvent<Payload>,
-  DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null
+  DLQTopic: KTTopicEvent<DLQPayload<Payload[number]['value']>> | null
 } => {
   const BaseTopic = createTopicBatchEvent<Payload>(settings, validatorFn)
-  let DLQTopic: KTTopicEvent<DLQPayload<Payload>> | null = null
+  let DLQTopic: KTTopicEvent<DLQPayload<Payload[number]['value']>> | null = null
 
   if (settings.createDLQ) {
-    DLQTopic = DLQKTTopic<Payload>(settings)
+    DLQTopic = DLQKTTopic<Payload[number]['value']>(settings)
   }
 
   return { BaseTopic, DLQTopic }

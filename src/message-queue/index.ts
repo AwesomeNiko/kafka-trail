@@ -1,506 +1,161 @@
-import { clearInterval } from "node:timers";
-
-import type { Span, SpanOptions } from "@opentelemetry/api";
 import pino from "pino";
 import type { Logger } from "pino";
 
-import { ArgumentIsRequired, NoHandlersError, ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
+import type { KTJobHandler } from "../bullmq/consumer-handler.js";
+import { BullMQBackend, type KTBullMQConsumerConfig, type KTBullMQProducerConfig } from "../bullmq/index.js";
+import type { KTJobPayload, KTJobScheduler } from "../bullmq/job.js";
 import type { KTHandler } from "../kafka/consumer-handler.js";
-import type { KafkaBrokerConfig, KafkaLogger } from "../kafka/kafka-broker.js";
+import { KafkaBackend } from "../kafka/index.js";
+import type { KafkaBrokerConfig } from "../kafka/kafka-broker.js";
 import type { KTKafkaConsumerConfig } from "../kafka/kafka-consumer.js";
-import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
-import { KTKafkaProducer } from "../kafka/kafka-producer.js";
 import type { KTTopicBatchPayload } from "../kafka/topic-batch.js";
-import { DLQKTTopic, type KTTopicEvent, type KTTopicPayloadWithMeta } from "../kafka/topic.js";
-import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
-import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
-
-type KTOtelApi = Pick<
-  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-  typeof import("@opentelemetry/api"),
-  "context" | "trace" | "SpanKind" | "SpanStatusCode"
->;
-
-type KTHandlerKafkaParams = {
-  heartBeat: () => Promise<void>,
-  partition: number,
-  lastOffset: string | undefined,
-  resolveOffset?: (offset: string) => void,
-}
-
-type KTPublishToDlqParams<Ctx extends object> = {
-  handler: KTHandler<object, Ctx & KafkaLogger>,
-  originalTopic: KafkaTopicName,
-  originalOffset: string | undefined,
-  originalPartition: number,
-  key: KafkaMessageKey,
-  value: object[],
-  errorMessage: string,
-}
-
-type KTRunHandlerWithTracingParams<Ctx extends object> = {
-  handler: KTHandler<object, Ctx & KafkaLogger>,
-  topicName: KafkaTopicName,
-  partition: number,
-  lastOffset: string | undefined,
-  batchedValues: object[],
-  payloadContentLength: number,
-  kafkaTopicParams: KTHandlerKafkaParams,
-  failedKey: KafkaMessageKey,
-}
+import type { KTTopicEvent, KTTopicPayloadWithMeta } from "../kafka/topic.js";
+import type { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
+import type { KTLogger } from "../libs/helpers/logger.js";
+import { KTTracing, type KTTracingSettings } from "../libs/helpers/tracing.js";
 
 class KTMessageQueue<Ctx extends object> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  #registeredHandlers: Map<KafkaTopicName, KTHandler<any, Ctx & KafkaLogger>> = new Map();
-  #ktProducer?: KTKafkaProducer;
-  #ktConsumer?: KTKafkaConsumer;
-  #ctx: Ctx & KafkaLogger
-  // Trace settings
-  #addPayloadToTrace: boolean = false;
-  #otel: KTOtelApi | undefined
+  #kafkaBackend: KafkaBackend<Ctx>;
+  #bullMQBackend: BullMQBackend<Ctx>;
+  #ctx: Ctx & KTLogger;
+  #tracing: KTTracing;
 
   constructor(params?: {
     ctx: () => Ctx & {
       logger?: Logger
     },
-    tracingSettings?: {
-      otel?: KTOtelApi
-      addPayloadToTrace: boolean
-    }
+    tracingSettings?: KTTracingSettings
   }) {
     let ctx = params?.ctx()
 
     if (!ctx) {
-      ctx = {} as Ctx & KafkaLogger
+      ctx = {} as Ctx & KTLogger
     }
 
     if (!ctx.logger) {
       ctx.logger = pino()
     }
 
-    this.#ctx = ctx as Ctx & KafkaLogger
-    this.#addPayloadToTrace = params?.tracingSettings?.addPayloadToTrace ?? false
-    this.#otel = params?.tracingSettings?.otel
+    this.#ctx = ctx as Ctx & KTLogger
+    this.#tracing = new KTTracing(params?.tracingSettings)
+    this.#kafkaBackend = new KafkaBackend({
+      ctx: this.#ctx,
+      publisher: this,
+      tracing: this.#tracing,
+    })
+    this.#bullMQBackend = new BullMQBackend({
+      ctx: this.#ctx,
+      publisher: this,
+      tracing: this.#tracing,
+    })
   }
 
-  getConsumer(): KTKafkaConsumer | undefined {
-    return this.#ktConsumer;
+  getConsumer() {
+    return this.#kafkaBackend.getConsumer();
   }
 
-  getProducer(): KTKafkaProducer | undefined {
-    return this.#ktProducer;
+  getProducer() {
+    return this.#kafkaBackend.getProducer();
   }
 
   getAdmin() {
-    return this.#ktProducer?.getAdmin()
+    return this.#kafkaBackend.getAdmin();
   }
 
-  #requireConsumer(): KTKafkaConsumer {
-    if (!this.#ktConsumer) {
-      throw new Error("Consumer is not initialized");
-    }
-
-    return this.#ktConsumer;
+  initProducer(params: KafkaBrokerConfig) {
+    return this.#kafkaBackend.initProducer(params);
   }
 
-  #requireProducer(): KTKafkaProducer {
-    if (!this.#ktProducer) {
-      throw new ProducerNotInitializedError();
-    }
-
-    return this.#ktProducer;
-  }
-
-  #extractErrorMessage(err: unknown): string {
-    if (err instanceof Error) {
-      this.#ctx.logger.error(err)
-
-      return err.message
-    }
-
-    return ''
-  }
-
-  async #withSpan<T>(
-    name: string,
-    options: SpanOptions,
-    run: (span?: Span) => Promise<T>,
-  ): Promise<T> {
-    if (!this.#otel) {
-      return run();
-    }
-
-    const span = this.#otel.trace
-      .getTracer("kafka-trail", "1.0.0")
-      .startSpan(name, options);
-
-    return this.#otel.context.with(
-      this.#otel.trace.setSpan(this.#otel.context.active(), span),
-      async () => run(span),
-    );
-  }
-
-  async #publishToDlq(params: KTPublishToDlqParams<Ctx>) {
-    const Topic = DLQKTTopic(params.handler.topic.topicSettings)
-    const Payload = Topic({
-      originalOffset: params.originalOffset,
-      originalTopic: params.originalTopic,
-      originalPartition: params.originalPartition,
-      key: params.key,
-      value: params.value,
-      errorMessage: params.errorMessage,
-      failedAt: Date.now(),
-    }, {
-      messageKey: KafkaMessageKey.NULL,
-      meta: {},
-    })
-
-    await this.publishSingleMessage(Payload)
-  }
-
-  async #runHandlerWithTracing(params: KTRunHandlerWithTracingParams<Ctx>) {
-    const attributes = createHandlerTraceAttributes({
-      topicName: params.topicName,
-      partition: params.partition,
-      lastOffset: params.lastOffset,
-      batchedValues: params.batchedValues,
-      payloadContentLength: params.payloadContentLength,
-      opts: {
-        addPayloadToTrace: this.#addPayloadToTrace,
-      },
-    })
-
-    await this.#withSpan(`kafka-trail: handler ${params.topicName}`, {
-      kind: this.#otel?.SpanKind.CONSUMER ?? 0,
-      attributes,
-    }, async (handlerSpan) => {
-      try {
-        await params.handler.run(params.batchedValues, this.#ctx, this, params.kafkaTopicParams)
-      } catch (err) {
-        const errorMessage = this.#extractErrorMessage(err)
-
-        if (params.handler.topic.topicSettings.createDLQ) {
-          await this.#publishToDlq({
-            handler: params.handler,
-            originalOffset: params.lastOffset,
-            originalTopic: params.topicName,
-            originalPartition: params.partition,
-            key: params.failedKey,
-            value: params.batchedValues,
-            errorMessage,
-          })
-        } else {
-          throw err
-        }
-      } finally {
-        handlerSpan?.end()
-      }
-    })
-  }
-
-  #getRawPayloadContentLength(value: Buffer | string | null | undefined): number {
-    if (!value) {
-      return 0
-    }
-
-    if (Buffer.isBuffer(value)) {
-      return value.byteLength
-    }
-
-    return Buffer.byteLength(value, "utf8")
-  }
-
-  async initProducer(params: KafkaBrokerConfig) {
-    const { kafkaSettings: { brokerUrls } } = params
-
-    if(!brokerUrls || !brokerUrls.length) { throw new ArgumentIsRequired('brokerUrls'); }
-
-    this.#ktProducer  = new KTKafkaProducer({ ...params, logger: this.#ctx.logger });
-    await this.#ktProducer.init();
-  }
-
-  async initConsumer(params: KTKafkaConsumerConfig) {
-    const {
-      kafkaSettings: { brokerUrls },
-    } = params;
-
-    if (!brokerUrls || !brokerUrls.length) {
-      throw new ArgumentIsRequired("brokerUrls");
-    }
-
-    const registeredHandlers = [...this.#registeredHandlers.values()]
-
-    if (registeredHandlers.length === 0) {
-      throw new NoHandlersError('subscribe to consumer');
-    }
-
-    const hasDlqHandlers = registeredHandlers.some((handler) => handler.topic.topicSettings.createDLQ)
-
-    if (hasDlqHandlers && !this.#ktProducer) {
-      throw new ProducerInitRequiredForDLQError();
-    }
-
-    this.#ktConsumer = new KTKafkaConsumer({ ...params, logger: this.#ctx.logger });
-    await this.#ktConsumer.init();
-
-    if (params.kafkaSettings.batchConsuming) {
-      await this.#subscribeAll()
-    } else {
-      await this.#subscribeAllEachMessages()
-    }
+  initConsumer(params: KTKafkaConsumerConfig) {
+    return this.#kafkaBackend.initConsumer(params);
   }
 
   async destroyAll() {
     await Promise.all([
-      this.destroyProducer(),
       this.destroyConsumer(),
+      this.destroyBullMQConsumer(),
+    ])
+    await Promise.all([
+      this.destroyProducer(),
+      this.destroyBullMQProducer(),
     ])
   }
 
-  async destroyProducer() {
-    if (this.#ktProducer) {
-      await this.#ktProducer.destroy();
-    }
+  destroyProducer() {
+    return this.#kafkaBackend.destroyProducer();
   }
 
-  async destroyConsumer() {
-    if (this.#ktConsumer) {
-      await this.#ktConsumer.destroy();
-    }
+  destroyConsumer() {
+    return this.#kafkaBackend.destroyConsumer();
   }
 
-  async #subscribeAllEachMessages(){
-    const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
-    const consumer = this.#requireConsumer();
-    await consumer.subscribeTopic(topicNames)
-    await consumer.consumer.run({
-      partitionsConsumedConcurrently: 1,
-      eachMessage: async (eachMessagePayload) => {
-        await this.#withSpan(`kafka-trail: eachMessage`, {
-          kind: this.#otel?.SpanKind.CONSUMER ?? 0,
-          attributes: {
-            'messaging.system': 'kafka',
-            'messaging.destination': topicNames,
-          },
-        }, async (eachMessageSpan) => {
-          try {
-            const { topic, message, partition }  = eachMessagePayload
-
-            const topicName = KafkaTopicName.fromString(topic)
-
-            const handler = this.#registeredHandlers.get(topicName)
-
-            if (handler) {
-              const batchedValues: object[] = [];
-              let lastOffset: string | undefined = undefined
-              let payloadContentLength = 0
-
-              if (message.value) {
-                payloadContentLength = this.#getRawPayloadContentLength(message.value)
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-                const decodedMessage: object = handler.topic.decode(message.value);
-                batchedValues.push(decodedMessage);
-                lastOffset = message.offset;
-              }
-
-              await this.#runHandlerWithTracing({
-                handler,
-                topicName,
-                partition,
-                lastOffset,
-                batchedValues,
-                payloadContentLength,
-                kafkaTopicParams: {
-                  partition,
-                  lastOffset,
-                  heartBeat: () => eachMessagePayload.heartbeat(),
-                },
-                failedKey: KafkaMessageKey.fromString(message.key?.toString()),
-              })
-            }
-          } finally {
-            eachMessageSpan?.end()
-          }
-        })
-      },
-    })
-  }
-
-  async #subscribeAll() {
-    const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
-    const consumer = this.#requireConsumer();
-    await consumer.subscribeTopic(topicNames)
-    await consumer.consumer.run({
-      eachBatchAutoResolve: false,
-      partitionsConsumedConcurrently: 1,
-      eachBatch: async (eachBatchPayload) => {
-        await this.#withSpan(`kafka-trail: eachBatch`, {
-          kind: this.#otel?.SpanKind.CONSUMER ?? 0,
-          attributes: {
-            'messaging.system': 'kafka',
-            'messaging.destination': topicNames,
-          },
-        }, async (eachBatchSpan) => {
-          try {
-            const { batch: { topic, messages, partition } } = eachBatchPayload
-
-            const topicName = KafkaTopicName.fromString(topic)
-
-            const handler = this.#registeredHandlers.get(topicName)
-
-            if (handler) {
-              const heartbeatIntervalMs =
-                consumer.heartBeatInterval - Math.floor(consumer.heartBeatInterval * consumer.heartbeatEarlyFactor)
-              const heartBeatInterval = setInterval(() => {
-                void this.#withSpan(`kafka-trail: manual-heartbeat`, {
-                  kind: this.#otel?.SpanKind.CONSUMER ?? 0,
-                  attributes: {
-                    'messaging.system': 'kafka',
-                    'messaging.destination': topicNames,
-                  },
-                }, async (heartbeatSpan) => {
-                  try {
-                    await eachBatchPayload.heartbeat()
-                  } catch (err) {
-                    this.#ctx.logger.error(err)
-                  } finally {
-                    heartbeatSpan?.end()
-                  }
-                })
-              }, heartbeatIntervalMs)
-
-              try {
-                const batchedValues: object[] = [];
-                let lastOffset: string | undefined = undefined
-                let payloadContentLength = 0
-
-                for (const message of messages) {
-                  if (batchedValues.length < handler.topic.topicSettings.batchMessageSizeToConsume) {
-                    if (message.value) {
-                      payloadContentLength += this.#getRawPayloadContentLength(message.value)
-                      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-                      const decodedMessage: object = handler.topic.decode(message.value);
-                      batchedValues.push(decodedMessage);
-                      lastOffset = message.offset;
-                    }
-                  } else {
-                    break;
-                  }
-                }
-
-                await this.#runHandlerWithTracing({
-                  handler,
-                  topicName,
-                  partition,
-                  lastOffset,
-                  batchedValues,
-                  payloadContentLength,
-                  kafkaTopicParams: {
-                    partition,
-                    lastOffset,
-                    heartBeat: () => eachBatchPayload.heartbeat(),
-                    resolveOffset: (offset: string) => eachBatchPayload.resolveOffset(offset),
-                  },
-                  failedKey: KafkaMessageKey.fromString(JSON.stringify(messages.map(m=>m.key?.toString()))),
-                })
-
-                if (lastOffset) {
-                  eachBatchPayload.resolveOffset(lastOffset)
-                }
-              } finally {
-                clearInterval(heartBeatInterval)
-              }
-            }
-
-            await eachBatchPayload.heartbeat()
-          } finally {
-            eachBatchSpan?.end()
-          }
-        })
-      },
-    })
-  }
-
-  async initTopics<T extends object>(topicEvents: KTTopicEvent<T>[]) {
-    const producer = this.#requireProducer();
-
-    for (const topicEvent of topicEvents) {
-      if (!topicEvent) {
-        throw new Error("Attemt to create topic that doesn't exists (null, instead of KTTopicEvent)")
-      }
-
-      await producer.createTopic(topicEvent.topicSettings);
-    }
+  initTopics<T extends object>(topicEvents: KTTopicEvent<T>[]) {
+    return this.#kafkaBackend.initTopics(topicEvents);
   }
 
   getRegisteredHandler(topic: KafkaTopicName) {
-    return this.#registeredHandlers.get(topic)
+    return this.#kafkaBackend.getRegisteredHandler(topic);
   }
 
-  registerHandlers<T extends object>(mqHandlers: KTHandler<T, Ctx & KafkaLogger>[]) {
-    for (const handler of mqHandlers) {
-      if (!this.#registeredHandlers.has(handler.topic.topicSettings.topic)) {
-        this.#registeredHandlers.set(handler.topic.topicSettings.topic, handler);
-      } else {
-        this.#ctx.logger.warn(`Attempting to register an already registered handler ${handler.topic.topicSettings.topic}`);
-      }
-    }
+  registerHandlers<T extends object>(mqHandlers: KTHandler<T, Ctx & KTLogger>[]) {
+    this.#kafkaBackend.registerHandlers(mqHandlers);
   }
 
   publishSingleMessage(topic: KTTopicPayloadWithMeta) {
-    const producer = this.#ktProducer;
-
-    if (!producer) {
-      return Promise.reject(new ProducerNotInitializedError());
-    }
-
-    return this.#withSpan(`kafka-trail: publishSingleMessage ${topic.topicName}`, {
-      kind: this.#otel?.SpanKind.PRODUCER ?? 0,
-    }, async (span) => {
-      try {
-        const res = await producer.sendSingleMessage({
-          topicName: topic.topicName,
-          value: topic.message,
-          messageKey: topic.messageKey,
-          headers: topic.meta ?? {},
-        });
-        span?.end()
-
-        return res
-      } catch (error) {
-        span?.recordException(error as Error)
-        span?.setStatus({ code: this.#otel?.SpanStatusCode.ERROR ?? 2, message: String(error) })
-        span?.end()
-        throw error
-      }
-    })
+    return this.#kafkaBackend.publishSingleMessage(topic);
   }
 
   publishBatchMessages(topic: KTTopicBatchPayload) {
-    const producer = this.#ktProducer;
+    return this.#kafkaBackend.publishBatchMessages(topic);
+  }
 
-    if (!producer) {
-      return Promise.reject(new ProducerNotInitializedError());
-    }
+  initBullMQProducer(params: KTBullMQProducerConfig) {
+    return this.#bullMQBackend.initProducer(params);
+  }
 
-    return this.#withSpan(`kafka-trail: publishBatchMessages ${topic.topicName}`, {
-      kind: this.#otel?.SpanKind.PRODUCER ?? 0,
-      attributes: {
-        messageSize: topic.messages.length,
-      },
-    }, async (span) => {
-      try {
-        const res = await producer.sendBatchMessages(topic);
-        span?.end()
+  initBullMQConsumer(params: KTBullMQConsumerConfig) {
+    return this.#bullMQBackend.initConsumer(params);
+  }
 
-        return res
-      } catch (error) {
-        span?.recordException(error as Error)
-        span?.setStatus({ code: this.#otel?.SpanStatusCode.ERROR ?? 2, message: String(error) })
-        span?.end()
-        throw error
-      }
-    })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  registerJobHandlers(handlers: KTJobHandler<any, Ctx & KTLogger>[]) {
+    this.#bullMQBackend.registerHandlers(handlers);
+  }
+
+  getRegisteredJobHandler(name: string) {
+    return this.#bullMQBackend.getRegisteredHandler(name);
+  }
+
+  getBullMQQueue(name: string) {
+    return this.#bullMQBackend.getQueue(name);
+  }
+
+  getBullMQWorker(name: string) {
+    return this.#bullMQBackend.getWorker(name);
+  }
+
+  publishJob(job: KTJobPayload) {
+    return this.#bullMQBackend.publishJob(job);
+  }
+
+  publishBatchJobs(jobs: KTJobPayload[]) {
+    return this.#bullMQBackend.publishBatchJobs(jobs);
+  }
+
+  upsertJobScheduler(params: KTJobScheduler) {
+    return this.#bullMQBackend.upsertJobScheduler(params);
+  }
+
+  removeJobScheduler(params: { jobName: string, schedulerId: string }) {
+    return this.#bullMQBackend.removeJobScheduler(params);
+  }
+
+  destroyBullMQProducer() {
+    return this.#bullMQBackend.destroyProducer();
+  }
+
+  destroyBullMQConsumer() {
+    return this.#bullMQBackend.destroyConsumer();
   }
 }
 

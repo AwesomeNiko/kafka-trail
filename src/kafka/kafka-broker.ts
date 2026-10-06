@@ -1,9 +1,9 @@
 import type { CompressionTypes as KafkaCompressionTypes, KafkaConfig } from "kafkajs";
 import KafkaJS from "kafkajs";
-import type pino from "pino";
 
 import { lz4Codec } from "../codec/lz4-codec.js";
 import type { KafkaClientId } from "../libs/branded-types/kafka/index.js";
+import type { KTLogger } from "../libs/helpers/logger.js";
 
 type KTKafkaSettings = {
   brokerUrls: string[],
@@ -23,9 +23,7 @@ export type KafkaBrokerConfig = {
   pureConfig: Pick<KafkaConfig, "ssl" | "sasl" | "authenticationTimeout" | "reauthenticationThreshold" | "requestTimeout" | "enforceRequestTimeout" | "retry" | "socketFactory" | "logLevel" | "logCreator">
 }
 
-export type KafkaLogger = {
-  logger: pino.Logger;
-}
+export type KafkaLogger = KTLogger
 
 export type KafkaWithLogger<T extends KafkaBrokerConfig> = T & KafkaLogger
 
