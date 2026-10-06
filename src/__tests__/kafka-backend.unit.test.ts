@@ -6,6 +6,7 @@ import pino from "pino";
 import { KTHandler, type KTRun } from "../kafka/consumer-handler.js";
 import { KTKafkaConsumer } from "../kafka/kafka-consumer.js";
 import { KTKafkaProducer } from "../kafka/kafka-producer.js";
+import { CreateKTTopicBatch } from "../kafka/topic-batch.js";
 import { CreateKTTopic } from "../kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { KTMessageQueue } from "../message-queue/index.js";
@@ -13,6 +14,7 @@ import { KTMessageQueue } from "../message-queue/index.js";
 import { createKafkaMocks } from "./mocks/create-mocks.js";
 
 type Payload = { value: number }
+type BatchInput = Array<{ value: Payload, key: KafkaMessageKey }>
 type TestContext = { serviceName: string, logger: pino.Logger }
 
 const topicName = KafkaTopicName.fromString("test.kafka.backend");
@@ -168,6 +170,56 @@ describe("Kafka backend through KTMessageQueue", () => {
     });
     expect(batchPayload.resolveOffset).toHaveBeenCalledWith("11");
     expect(batchPayload.heartbeat).toHaveBeenCalled();
+  });
+
+  it("infers decoded payloads for a batch topic handler", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    const topic = CreateKTTopicBatch<BatchInput>({
+      topic: topicName,
+      numPartitions: 1,
+      batchMessageSizeToConsume: 2,
+      createDLQ: false,
+    }).BaseTopic;
+    const handler = KTHandler({
+      topic,
+      run: async (values) => {
+        const payloads: Payload[] = values;
+        expect(payloads.map((payload) => payload.value)).toEqual([1, 2]);
+        await Promise.resolve();
+      },
+    });
+    const typedHandler: KTHandler<Payload, TestContext> = handler;
+    const run = jest.spyOn(handler, "run");
+
+    queue.registerHandlers([typedHandler]);
+    await queue.initConsumer({ ...kafkaConfig, kafkaSettings: { ...kafkaConfig.kafkaSettings, batchConsuming: true } });
+    await consume(true);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves arrays as payloads for a regular topic handler", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    const topic = CreateKTTopic<BatchInput>(createTopic().topicSettings).BaseTopic;
+    const arrayValue: BatchInput = [{ value: { value: 1 }, key: KafkaMessageKey.NULL }];
+    const batchPayload = createEachBatchPayload();
+    batchPayload.batch.messages = [{
+      ...createEachMessagePayload().message,
+      value: Buffer.from(JSON.stringify(arrayValue)),
+    }];
+    const handler = KTHandler({
+      topic,
+      run: async (values) => {
+        const batches: BatchInput[] = values;
+        expect(batches).toEqual([arrayValue]);
+        await Promise.resolve();
+      },
+    });
+    const run = jest.spyOn(handler, "run");
+
+    queue.registerHandlers([handler]);
+    await queue.initConsumer({ ...kafkaConfig, kafkaSettings: { ...kafkaConfig.kafkaSettings, batchConsuming: true } });
+    await consume(true, batchPayload);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it.each([

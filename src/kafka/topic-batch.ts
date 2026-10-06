@@ -6,7 +6,7 @@ import { ktDecode, ktEncode, type KTTopicPayloadParser } from "../libs/helpers/d
 import type { DLQPayload , KTTopicEvent,  KTTopicSettings } from "./topic.js";
 import { DLQKTTopic  } from "./topic.js";
 
-export type KTTopicBatchRawMessage = Array<Omit<KTTopicBatchMessage, 'value'> & {value: object}>
+export type KTTopicBatchRawMessage<Payload extends object = object> = Array<Omit<KTTopicBatchMessage, 'value'> & {value: Payload}>
 
 export type KTTopicBatchMessage = {
   value: string
