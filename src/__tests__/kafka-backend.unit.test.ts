@@ -122,6 +122,28 @@ describe("Kafka backend through KTMessageQueue", () => {
     jest.clearAllMocks();
   });
 
+  it.each([
+    { batchConsuming: false, concurrency: undefined, expected: 1 },
+    { batchConsuming: true, concurrency: undefined, expected: 1 },
+    { batchConsuming: false, concurrency: 5, expected: 5 },
+    { batchConsuming: true, concurrency: 5, expected: 5 },
+  ])("passes concurrency=$expected to KafkaJS (batch=$batchConsuming)", async ({ batchConsuming, concurrency, expected }) => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    queue.registerHandlers([KTHandler({ topic: createTopic(), run: () => Promise.resolve() })]);
+
+    await queue.initConsumer({
+      ...kafkaConfig,
+      kafkaSettings: {
+        ...kafkaConfig.kafkaSettings,
+        batchConsuming,
+        ...(concurrency === undefined ? {} : { partitionsConsumedConcurrently: concurrency }),
+      },
+    });
+
+    expect(consumerRun).toHaveBeenCalledTimes(1);
+    expect(consumerRun.mock.calls[0]?.[0]?.partitionsConsumedConcurrently).toBe(expected);
+  });
+
   it("preserves the handler context and facade publisher", async () => {
     const topic = createTopic();
     const queue = new KTMessageQueue({ ctx: () => context });

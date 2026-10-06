@@ -179,7 +179,7 @@ class KafkaBackend<Ctx extends object> {
 
   async initConsumer(params: KTKafkaConsumerConfig) {
     const {
-      kafkaSettings: { brokerUrls },
+      kafkaSettings: { brokerUrls, partitionsConsumedConcurrently = 1 },
     } = params;
 
     if (!brokerUrls || !brokerUrls.length) {
@@ -202,9 +202,9 @@ class KafkaBackend<Ctx extends object> {
     await this.#ktConsumer.init();
 
     if (params.kafkaSettings.batchConsuming) {
-      await this.#subscribeAll()
+      await this.#subscribeAll(partitionsConsumedConcurrently)
     } else {
-      await this.#subscribeAllEachMessages()
+      await this.#subscribeAllEachMessages(partitionsConsumedConcurrently)
     }
   }
 
@@ -220,12 +220,12 @@ class KafkaBackend<Ctx extends object> {
     }
   }
 
-  async #subscribeAllEachMessages(){
+  async #subscribeAllEachMessages(partitionsConsumedConcurrently: number){
     const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
     const consumer = this.#requireConsumer();
     await consumer.subscribeTopic(topicNames)
     await consumer.consumer.run({
-      partitionsConsumedConcurrently: 1,
+      partitionsConsumedConcurrently,
       eachMessage: async (eachMessagePayload) => {
         await this.#tracing.withSpan(`kafka-trail: eachMessage`, {
           kind: this.#tracing.otel?.SpanKind.CONSUMER ?? 0,
@@ -277,13 +277,13 @@ class KafkaBackend<Ctx extends object> {
     })
   }
 
-  async #subscribeAll() {
+  async #subscribeAll(partitionsConsumedConcurrently: number) {
     const topicNames = [...this.#registeredHandlers.values()].map(item => item.topic.topicSettings.topic)
     const consumer = this.#requireConsumer();
     await consumer.subscribeTopic(topicNames)
     await consumer.consumer.run({
       eachBatchAutoResolve: false,
-      partitionsConsumedConcurrently: 1,
+      partitionsConsumedConcurrently,
       eachBatch: async (eachBatchPayload) => {
         await this.#tracing.withSpan(`kafka-trail: eachBatch`, {
           kind: this.#tracing.otel?.SpanKind.CONSUMER ?? 0,
