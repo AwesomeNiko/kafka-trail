@@ -1,19 +1,19 @@
 version: 2
 
 updates:
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/"
     versioning-strategy: increase
     schedule:
       interval: "daily"
 
     groups:
-      npm-minor-patch:
+      bun-minor-patch:
         update-types:
           - "minor"
           - "patch"
 
-      npm-security:
+      bun-security:
         applies-to: security-updates
         patterns:
           - "*"

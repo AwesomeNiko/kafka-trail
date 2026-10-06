@@ -21,15 +21,15 @@ A Node.js library for managing message queues with Kafka, designed to simplify c
 
 ## Installation
 
-Install the library using npm or Yarn:
+Install the library using npm or Bun:
 
 ```bash
 npm install @awesomeniko/kafka-trail
 ```
-Or with Yarn:
+Or with Bun:
 
 ```bash
-yarn add @awesomeniko/kafka-trail
+bun add @awesomeniko/kafka-trail
 ```
 
 ### Native LZ4 codec
@@ -37,24 +37,23 @@ yarn add @awesomeniko/kafka-trail
 The default `LZ4` codec is now backed by an internal `Rust + napi-rs` native binding instead of the `lz4` npm package.
 
 - Library consumers should use the prebuilt native artifact shipped with the package.
-- If you are developing this repository from source, run `yarn build:native` before `yarn build` or `yarn test`.
+- If you are developing this repository from source, run `bun run build` to build both the native module and TypeScript, or `bun run build:native` before `bun run test`.
 - The native module source lives in `native/lz4`.
 
 ### Native build requirements
 
 If you are building this repository from source, you need:
 
-- `Node.js`
-- `yarn` or `npm`
+- `Node.js` (version specified in `.nvmrc`)
+- `Bun` (version specified in `package.json` under `packageManager`)
 - `Rust` toolchain via `rustup` with `cargo` and `rustc`
 - On macOS, `Xcode Command Line Tools`
 
 Local development flow:
 
 ```bash
-yarn install
-yarn build:native
-yarn build
+bun install
+bun run build
 ```
 
 This setup does not require `python`, `node-gyp`, or a C++ Node addon toolchain.

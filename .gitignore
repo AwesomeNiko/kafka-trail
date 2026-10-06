@@ -2,8 +2,6 @@
 logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 
 # Dependency directories
@@ -74,14 +72,6 @@ test-results/
 
 # Local npm configuration
 .npmrc
-
-# Yarn Integrity
-.yarn-integrity
-
-# Yarn/PNPM artifacts
-.yarn/
-.pnp.cjs
-.pnp.loader.mjs
 
 # IDE settings
 .vscode/

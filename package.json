@@ -3,6 +3,7 @@
   "version": "0.3.8",
   "description": "A Node.js library for managing message queue with Kafka",
   "type": "module",
+  "packageManager": "bun@1.4.0",
   "publishConfig": {
     "access": "public"
   },
@@ -26,19 +27,19 @@
     "url": "https://github.com/AwesomeNiko/kafka-trail.git"
   },
   "scripts": {
-    "lint": "yarn lint:check",
-    "lint:check": "yarn typecheck && eslint --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
+    "lint": "bun run lint:check",
+    "lint:check": "bun run typecheck && eslint --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "lint:fix": "eslint --fix --max-warnings 0 --format stylish \"./**/*.ts{,x}\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build:native": "node -e \"const fs=require('node:fs'); const path=require('node:path'); for (const name of fs.readdirSync('native/lz4')) { if (name.endsWith('.node')) fs.rmSync(path.join('native/lz4', name), { force: true }); }\" && cd native/lz4 && napi build --platform --release",
     "build:ts": "rimraf dist && tsc -P tsconfig.build.json",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.unit.json --detectOpenHandles",
     "test:int": "node --env-file-if-exists=.env --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.int.json --detectOpenHandles",
-    "test": "yarn test:unit && yarn test:int",
+    "test": "bun run test:unit && bun run test:int",
     "prepare": "husky",
     "start": "NODE_PATH=./dist node --enable-source-maps dist/test-run.js",
-    "build": "yarn build:native && yarn build:ts",
-    "dev": "npm run build && npm run start"
+    "build": "bun run build:native && bun run build:ts",
+    "dev": "bun run build && bun run start"
   },
   "dependencies": {
     "@aws-sdk/client-glue": "3.1146.0",
@@ -72,8 +73,8 @@
     "typescript": "6.0.3",
     "zod": "^4.6.5"
   },
-  "resolutions": {
-    "**/fast-xml-parser": "5.7.0"
+  "overrides": {
+    "fast-xml-parser": "5.7.0"
   },
   "files": [
     "dist",
