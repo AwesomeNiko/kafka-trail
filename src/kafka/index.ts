@@ -332,8 +332,9 @@ class KafkaBackend<Ctx extends object> {
                       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                       const decodedMessage: object = handler.topic.decode(message.value);
                       batchedValues.push(decodedMessage);
-                      lastOffset = message.offset;
                     }
+
+                    lastOffset = message.offset;
                   } else {
                     break;
                   }

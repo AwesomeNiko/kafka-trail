@@ -170,6 +170,36 @@ describe("Kafka backend through KTMessageQueue", () => {
     expect(batchPayload.heartbeat).toHaveBeenCalled();
   });
 
+  it.each([
+    { name: "tombstone-only batches", values: [null, null, null], expectedValues: [], expectedOffset: "12" },
+    { name: "trailing tombstones", values: [1, null, null], expectedValues: [{ value: 1 }], expectedOffset: "12" },
+    { name: "mixed batches", values: [null, 1, null, 2, 3], expectedValues: [{ value: 1 }, { value: 2 }], expectedOffset: "13" },
+    { name: "tombstones beyond the batch limit", values: [1, 2, null, 3], expectedValues: [{ value: 1 }, { value: 2 }], expectedOffset: "11" },
+  ])("resolves the last consumed offset for $name", async ({ values, expectedValues, expectedOffset }) => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    const run = jest.fn<KTRun<Payload, TestContext>>().mockResolvedValue(undefined);
+    const batchPayload = createEachBatchPayload();
+    batchPayload.batch.messages = values.map((value, index) => ({
+      ...createEachMessagePayload().message,
+      offset: String(10 + index),
+      value: value === null ? null : Buffer.from(JSON.stringify({ value })),
+    }));
+
+    queue.registerHandlers([KTHandler({ topic: createTopic(), run })]);
+    await queue.initConsumer({ ...kafkaConfig, kafkaSettings: { ...kafkaConfig.kafkaSettings, batchConsuming: true } });
+    await consume(true, batchPayload);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(expectedValues, context, queue, {
+      partition: 2,
+      lastOffset: expectedOffset,
+      heartBeat: expect.any(Function),
+      resolveOffset: expect.any(Function),
+    });
+    expect(batchPayload.resolveOffset).toHaveBeenCalledTimes(1);
+    expect(batchPayload.resolveOffset).toHaveBeenCalledWith(expectedOffset);
+  });
+
   it.each([false, true])("propagates handler errors without DLQ (batch=%s)", async (batchConsuming) => {
     const queue = new KTMessageQueue({ ctx: () => context });
     const error = new Error("handler failed");
