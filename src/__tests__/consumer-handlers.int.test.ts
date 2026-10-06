@@ -471,11 +471,7 @@ describe("Consumer handlers integration", () => {
           topic: DLQTopic,
           run: async (payload) => {
             await Promise.resolve();
-            const [dlqMessage] = payload as unknown as Array<{
-              originalTopic: string
-              errorMessage: string
-              value: object[]
-            }>;
+            const [dlqMessage] = payload;
 
             if (!dlqMessage) {
               return;

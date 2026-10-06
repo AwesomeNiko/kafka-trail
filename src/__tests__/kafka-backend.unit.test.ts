@@ -266,12 +266,24 @@ describe("Kafka backend through KTMessageQueue", () => {
     expect(sendMsgFn).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("publishes handler failures to DLQ (batch=%s)", async (batchConsuming) => {
+  it.each([
+    { batchConsuming: false, batchTopic: false },
+    { batchConsuming: true, batchTopic: false },
+    { batchConsuming: false, batchTopic: true },
+    { batchConsuming: true, batchTopic: true },
+  ])("publishes handler failures to typed DLQ (batch=$batchConsuming, batchTopic=$batchTopic)", async ({ batchConsuming, batchTopic }) => {
     const queue = new KTMessageQueue({ ctx: () => context });
     const run = jest.fn<KTRun<Payload, TestContext>>().mockRejectedValue(new Error("handler failed"));
     const batchPayload = createEachBatchPayload();
+    const { BaseTopic, DLQTopic } = batchTopic
+      ? CreateKTTopicBatch<BatchInput>(createTopic(true).topicSettings)
+      : CreateKTTopic<Payload>(createTopic(true).topicSettings);
 
-    queue.registerHandlers([KTHandler({ topic: createTopic(true), run })]);
+    if (!DLQTopic) {
+      throw new Error("DLQ topic is required");
+    }
+
+    queue.registerHandlers([KTHandler({ topic: BaseTopic, run })]);
     await queue.initProducer(kafkaConfig);
     await queue.initConsumer({ ...kafkaConfig, kafkaSettings: { ...kafkaConfig.kafkaSettings, batchConsuming } });
     await consume(batchConsuming, batchPayload);
@@ -293,6 +305,8 @@ describe("Kafka backend through KTMessageQueue", () => {
       errorMessage: "handler failed",
       failedAt: expect.any(Number),
     });
+    const payloads: Payload[] = DLQTopic.decode(value).value;
+    expect(payloads).toEqual(batchConsuming ? [{ value: 1 }, { value: 2 }] : [{ value: 1 }]);
 
     if (batchConsuming) {
       expect(batchPayload.resolveOffset).toHaveBeenCalledWith("11");
