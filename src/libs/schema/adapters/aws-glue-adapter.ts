@@ -114,6 +114,8 @@ type CreateAwsGlueCodecParams<Payload extends object> =
   | CreateAwsGlueCodecWithZodParams<Payload>
 
 const DEFAULT_AWS_GLUE_SCHEMA_CACHE = new Map<string, AwsGlueResolvedSchemaCacheEntry>()
+const AWS_GLUE_ADAPTER_IDS = new WeakMap<AwsGlueSchemaFetcherLike, number>()
+let nextAwsGlueAdapterId = 0
 
 const asSchemaVersion = (value: string | number | undefined): string | undefined => {
   if (typeof value === "string") {
@@ -143,13 +145,20 @@ const asVersionNumber = (value: string | number | undefined): number | undefined
   return undefined
 }
 
-const createSchemaCacheKey = (lookup: AwsGlueSchemaLookup): string => {
+const createSchemaCacheKey = (glue: AwsGlueSchemaFetcherLike, lookup: AwsGlueSchemaLookup): string => {
+  let adapterId = AWS_GLUE_ADAPTER_IDS.get(glue)
+
+  if (adapterId === undefined) {
+    adapterId = nextAwsGlueAdapterId++
+    AWS_GLUE_ADAPTER_IDS.set(glue, adapterId)
+  }
+
   const registryName = lookup.registryName ?? "default"
   const schemaArn = lookup.schemaArn ?? ""
   const schemaVersionId = lookup.schemaVersionId ?? ""
   const schemaVersionNumber = lookup.schemaVersionNumber ?? ""
 
-  return `${registryName}::${lookup.schemaName}::${schemaArn}::${schemaVersionId}::${schemaVersionNumber}`
+  return `${adapterId}::${registryName}::${lookup.schemaName}::${schemaArn}::${schemaVersionId}::${schemaVersionNumber}`
 }
 
 const getCacheEntry = (params: {
@@ -344,7 +353,7 @@ const resolveGlueSchema = async (params: {
   fetchedSchema: AwsGlueSchemaFetcherResult
 }> => {
   const store = params.cache?.store ?? DEFAULT_AWS_GLUE_SCHEMA_CACHE
-  const cacheKey = createSchemaCacheKey(params.lookup)
+  const cacheKey = createSchemaCacheKey(params.glue, params.lookup)
   const now = Date.now()
   const existingEntry = getCacheEntry({
     store,
