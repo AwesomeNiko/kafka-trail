@@ -885,6 +885,8 @@ It's planned to be removed in the next version:
 
 ## Testing
 
+Tests use Jest. Run the full suite with `bun run test`; `bun test` starts Bun's built-in test runner and does not load the Jest configuration or integration setup.
+
 Run unit tests with `bun run test:unit`.
 
 Integration tests use [Testcontainers Redpanda](https://node.testcontainers.org/modules/redpanda/) and [Testcontainers Redis](https://node.testcontainers.org/modules/redis/).
