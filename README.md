@@ -36,11 +36,10 @@ bun add @awesomeniko/kafka-trail
 
 ### Native LZ4 codec
 
-The default `LZ4` codec is now backed by an internal `Rust + napi-rs` native binding instead of the `lz4` npm package.
+The default `LZ4` codec uses a prebuilt native binding shipped with the package.
 
 - Library consumers should use the prebuilt native artifact shipped with the package.
 - If you are developing this repository from source, run `bun run build` to build both the native module and TypeScript, or `bun run build:native` before `bun run test`.
-- The native module source lives in `native/lz4`.
 
 ### Native build requirements
 
@@ -58,13 +57,9 @@ bun install
 bun run build
 ```
 
-This setup does not require `python`, `node-gyp`, or a C++ Node addon toolchain.
-
 ### OpenTelemetry observability
 
 Kafka and BullMQ share the same tracing and metrics implementation. Pass `tracingSettings.otel` to enable tracing and `meter` to enable metrics; they can be enabled independently.
-
-`KTMessageQueue` no longer relies on its own runtime copy of `@opentelemetry/api`.
 
 - If you do not pass `otel`, the library works as usual, but without tracing.
 - If you want tracing, pass your application's OpenTelemetry API instance through `tracingSettings.otel`.
@@ -127,8 +122,6 @@ sum(rate(messages_consumed_total{messaging_system="kafka", messaging_destination
 
 Subtract consumed rate from produced rate in Grafana. For BullMQ, select `messaging_system="bullmq"` and the queue name, without a consumer-group filter. A positive difference indicates an imbalance in flow, rather than an exact queue depth: Kafka records can be redelivered, BullMQ deduplication can accept a publication without adding a job, and scheduler-generated jobs bypass these publication calls. Use Kafka consumer lag or BullMQ queue counts to measure the actual backlog.
 
-These instruments replace the previous BullMQ-only `job_handler_executions` and `job_handler_duration` metrics. Transport-specific payload trace attributes are now unified as `messaging.payload`; payload size is recorded as `messaging.message.body.size`.
-
 If you prefer, you can also pass only the required OpenTelemetry fields explicitly:
 
 ```typescript
@@ -164,24 +157,11 @@ await messageQueue.initProducer({
 });
 ```
 
-### Publishing native binaries
-
-For local development, building the native module from source is enough. For npm distribution, the better long-term setup is to publish prebuilt `napi-rs` binaries per platform so library consumers do not need Rust installed.
-
-Recommended direction:
-
-- keep the Rust source in `native/lz4`
-- build platform-specific `.node` artifacts in CI
-- publish them as optional platform packages
-- let the main package depend on those optional native packages
-
-That is the standard `napi-rs` distribution model and avoids local compilation for end users.
-
 ## Usage
 
 ### Health checks
 
-After initializing Kafka, use `checkKafkaConnection()` in your application's `/health` handler. It uses the existing KafkaJS clients: the producer's `admin.describeCluster()` when a producer is initialized, otherwise `consumer.describeGroup()`. Producer-only and consumer-only applications can use the same method. If both are initialized, the producer check is used and its errors are propagated.
+After initializing Kafka, use `checkKafkaConnection()` in your application's `/health` handler. Producer-only and consumer-only applications can use the same method. If both are initialized, the producer check is used and its errors are propagated.
 
 ```typescript
 await messageQueue.checkKafkaConnection();
@@ -281,8 +261,6 @@ mq.registerJobHandlers([
 `UnrecoverableJobError` stops automatic retries immediately. State storage, outbox reconciliation and domain-specific recovery remain application responsibilities.
 
 `destroyBullMQConsumer({ graceful: true, timeout: 30_000 })` stops taking new jobs and waits for active handlers and final failure callbacks. On timeout, or with `graceful: false`, active signals are aborted and workers are force-closed. Handlers must cooperate with cancellation; JavaScript execution cannot be forcibly terminated. `destroyAll()` accepts the same BullMQ shutdown options and closes producers after consumers. Its timeout applies to BullMQ; Kafka shutdown behavior is unchanged.
-
-BullMQ attempts are logged with job name, ID, result and duration. Tracing and metrics use the shared OpenTelemetry configuration described above.
 
 ### BullMQ schedulers
 
@@ -877,21 +855,14 @@ Notes:
 - call `clearAwsGlueSchemaCache()` if you need to invalidate cached schemas manually.
 
 ### Deprecated topic creators
-`KTTopic(...)` and `KTTopicBatch(...)` were deprecated in previous version.
-Current versions intentionally throw runtime errors if these APIs are invoked (for teams that have not migrated yet).
-It's planned to be removed in the next version:
-- `Deprecated. use CreateKTTopic(...)`
-- `Deprecated. use CreateKTTopicBatch(...)`
+Use `CreateKTTopic(...)` and `CreateKTTopicBatch(...)`. The deprecated `KTTopic(...)` and `KTTopicBatch(...)` throw runtime errors.
 
 ## Testing
-
-Tests use Jest. Run the full suite with `bun run test`; `bun test` starts Bun's built-in test runner and does not load the Jest configuration or integration setup.
 
 Run unit tests with `bun run test:unit`.
 
 Integration tests use [Testcontainers Redpanda](https://node.testcontainers.org/modules/redpanda/) and [Testcontainers Redis](https://node.testcontainers.org/modules/redis/).
-They start one temporary broker and one Redis container on dynamically assigned ports for the test run and remove them afterward.
-Docker must already be running. Separately started Kafka, Redpanda or Redis services are not required.
+Docker must already be running.
 
 For Colima, set its existing Docker socket before running tests ([runtime setup](https://node.testcontainers.org/supported-container-runtimes/#colima)):
 
@@ -905,10 +876,7 @@ bun run build:native
 bun run test:int
 ```
 
-Integration tests use the real native LZ4 codec. Unit tests use a mock codec.
-BullMQ integration tests cover publication through handlers, bulk jobs, retries, final failure callbacks, unrecoverable failures, lock-loss cancellation, delays, schema validation, schedulers, graceful shutdown and Kafka → BullMQ → Kafka delivery.
 The default timeout for each integration test is 30 seconds; set `KAFKA_INT_TEST_TIMEOUT_MS` to override it.
-CI builds the native codec and runs both test suites.
 
 ## Contributing
 Contributions are welcome! If you’d like to improve this library:
