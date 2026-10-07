@@ -73,6 +73,10 @@ class KTMessageQueue<Ctx extends object> {
     return this.#kafkaBackend.initConsumer(params);
   }
 
+  checkKafkaConnection() {
+    return this.#kafkaBackend.checkConnection();
+  }
+
   async destroyAll(options?: KTBullMQShutdownOptions) {
     await Promise.all([
       this.destroyConsumer(),

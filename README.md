@@ -145,6 +145,18 @@ That is the standard `napi-rs` distribution model and avoids local compilation f
 
 ## Usage
 
+### Health checks
+
+After initializing Kafka, use `checkKafkaConnection()` in your application's `/health` handler. It uses the existing KafkaJS clients: the producer's `admin.describeCluster()` when a producer is initialized, otherwise `consumer.describeGroup()`. Producer-only and consumer-only applications can use the same method. If both are initialized, the producer check is used and its errors are propagated.
+
+```typescript
+await messageQueue.checkKafkaConnection();
+```
+
+The method returns `Promise<void>` and propagates connection or authentication errors. It throws `Kafka is not initialized` when no Kafka producer or consumer is initialized. It checks broker availability, not whether handlers are processing messages. KafkaJS connection, request timeout and retry settings apply to the check.
+
+For BullMQ, use `checkBullMQConnection()`. If your application uses both backends, await both checks in `/health`.
+
 ### BullMQ jobs
 
 Each job definition has its own BullMQ queue. Register handlers before initializing the consumer. Kafka and BullMQ can run independently or together on the same `KTMessageQueue` instance.

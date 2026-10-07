@@ -109,6 +109,10 @@ class KTKafkaConsumer extends KTKafkaBroker {
     return this.#isConnected;
   }
 
+  async checkConnection(): Promise<void> {
+    await this.consumer.describeGroup();
+  }
+
   async init() {
     await this.consumer.connect();
     this.#isConnected = true;

@@ -18,7 +18,7 @@ type BatchInput = Array<{ value: Payload, key: KafkaMessageKey }>
 type TestContext = { serviceName: string, logger: pino.Logger }
 
 const topicName = KafkaTopicName.fromString("test.kafka.backend");
-const { kafkaConsumerMock, sendMsgFn } = createKafkaMocks({ topicName });
+const { kafkaConsumerMock, kafkaAdminMock, kafkaAdminDisconnectFn, describeClusterFn, describeGroupFn, sendMsgFn } = createKafkaMocks({ topicName });
 const consumerRun = jest.fn<Consumer["run"]>().mockResolvedValue(undefined);
 const createConsumer = kafkaConsumerMock.getMockImplementation();
 
@@ -120,6 +120,79 @@ const consume = async (batchConsuming: boolean, batchPayload = createEachBatchPa
 describe("Kafka backend through KTMessageQueue", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("rejects a Kafka healthcheck before initialization and after shutdown", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    await expect(queue.checkKafkaConnection()).rejects.toThrow("Kafka is not initialized");
+    expect(describeClusterFn).not.toHaveBeenCalled();
+    expect(describeGroupFn).not.toHaveBeenCalled();
+
+    await queue.initProducer(kafkaConfig);
+    await queue.destroyProducer();
+
+    await expect(queue.checkKafkaConnection()).rejects.toThrow("Kafka is not initialized");
+    expect(describeClusterFn).not.toHaveBeenCalled();
+    expect(describeGroupFn).not.toHaveBeenCalled();
+  });
+
+  it("checks Kafka through the existing producer admin and propagates broker errors", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    await queue.initProducer(kafkaConfig);
+    await expect(queue.checkKafkaConnection()).resolves.toBeUndefined();
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    expect(describeClusterFn).toHaveBeenCalledTimes(1);
+
+    const error = new Error("Kafka unavailable");
+    describeClusterFn.mockRejectedValueOnce(error);
+    await expect(queue.checkKafkaConnection()).rejects.toBe(error);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    await queue.destroyProducer();
+  });
+
+  it("checks consumer-only Kafka through the existing consumer and propagates broker errors", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    queue.registerHandlers([KTHandler({ topic: createTopic(), run: () => Promise.resolve() })]);
+    await queue.initConsumer(kafkaConfig);
+    expect(kafkaAdminMock).not.toHaveBeenCalled();
+
+    await Promise.all([queue.checkKafkaConnection(), queue.checkKafkaConnection()]);
+    expect(describeGroupFn).toHaveBeenCalledTimes(2);
+    expect(describeClusterFn).not.toHaveBeenCalled();
+    expect(kafkaAdminMock).not.toHaveBeenCalled();
+
+    const error = new Error("Kafka authentication failed");
+    describeGroupFn.mockRejectedValueOnce(error);
+    await expect(queue.checkKafkaConnection()).rejects.toBe(error);
+    await queue.destroyConsumer();
+    expect(kafkaAdminDisconnectFn).not.toHaveBeenCalled();
+    await expect(queue.checkKafkaConnection()).rejects.toThrow("Kafka is not initialized");
+    expect(describeGroupFn).toHaveBeenCalledTimes(3);
+  });
+
+  it("prefers the producer admin and uses the consumer only when the producer is absent", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    queue.registerHandlers([KTHandler({ topic: createTopic(), run: () => Promise.resolve() })]);
+    await queue.initProducer(kafkaConfig);
+    await queue.initConsumer(kafkaConfig);
+    await queue.checkKafkaConnection();
+    expect(describeClusterFn).toHaveBeenCalledTimes(1);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+
+    const error = new Error("Kafka unavailable");
+    describeClusterFn.mockRejectedValueOnce(error);
+    await expect(queue.checkKafkaConnection()).rejects.toBe(error);
+    expect(describeClusterFn).toHaveBeenCalledTimes(2);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    expect(describeGroupFn).not.toHaveBeenCalled();
+
+    await queue.destroyProducer();
+    await queue.checkKafkaConnection();
+    expect(describeGroupFn).toHaveBeenCalledTimes(1);
+    expect(describeClusterFn).toHaveBeenCalledTimes(2);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    await queue.destroyAll();
+    expect(kafkaAdminDisconnectFn).toHaveBeenCalledTimes(1);
   });
 
   it.each([

@@ -44,8 +44,8 @@ type KTRunHandlerWithTracingParams<Ctx extends object> = {
 class KafkaBackend<Ctx extends object> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #registeredHandlers: Map<KafkaTopicName, KTHandler<any, Ctx & KafkaLogger>> = new Map();
-  #ktProducer?: KTKafkaProducer;
-  #ktConsumer?: KTKafkaConsumer;
+  #ktProducer: KTKafkaProducer | undefined;
+  #ktConsumer: KTKafkaConsumer | undefined;
   #ctx: Ctx & KafkaLogger
   #publisher: KTHandlerPublisher
   #tracing: KTTracing
@@ -70,6 +70,16 @@ class KafkaBackend<Ctx extends object> {
 
   getAdmin() {
     return this.#ktProducer?.getAdmin()
+  }
+
+  async checkConnection(): Promise<void> {
+    if (this.#ktProducer) {
+      await this.#ktProducer.getAdmin().describeCluster();
+    } else if (this.#ktConsumer) {
+      await this.#ktConsumer.checkConnection();
+    } else {
+      throw new Error("Kafka is not initialized");
+    }
   }
 
   #requireConsumer(): KTKafkaConsumer {
@@ -211,12 +221,14 @@ class KafkaBackend<Ctx extends object> {
   async destroyProducer() {
     if (this.#ktProducer) {
       await this.#ktProducer.destroy();
+      this.#ktProducer = undefined;
     }
   }
 
   async destroyConsumer() {
     if (this.#ktConsumer) {
       await this.#ktConsumer.destroy();
+      this.#ktConsumer = undefined;
     }
   }
 
