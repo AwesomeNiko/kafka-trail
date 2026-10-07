@@ -1,4 +1,4 @@
-import type { Span } from "@opentelemetry/api";
+import type { Counter, Histogram, Meter, Span } from "@opentelemetry/api";
 import { Queue, RedisConnection, Worker } from "bullmq";
 import type { Job, QueueOptions, RedisOptions, WorkerOptions } from "bullmq";
 
@@ -18,6 +18,11 @@ export type KTBullMQConsumerConfig = Omit<WorkerOptions, "connection" | "autorun
   connection: RedisOptions
 }
 
+export type KTBullMQShutdownOptions = {
+  graceful?: boolean
+  timeout?: number
+}
+
 export class BullMQBackend<Ctx extends object> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #handlers = new Map<string, KTJobHandler<any, Ctx & KTLogger>>();
@@ -29,11 +34,18 @@ export class BullMQBackend<Ctx extends object> {
   #ctx: Ctx & KTLogger;
   #publisher: KTPublisher;
   #tracing: KTTracing;
+  #activeControllers = new Set<AbortController>();
+  #activeJobs = new Set<Promise<void>>();
+  #activeFailureHandlers = new Set<Promise<void>>();
+  #executions: Counter | undefined;
+  #duration: Histogram | undefined;
 
-  constructor(params: { ctx: Ctx & KTLogger, publisher: KTPublisher, tracing: KTTracing }) {
+  constructor(params: { ctx: Ctx & KTLogger, publisher: KTPublisher, tracing: KTTracing, meter?: Meter }) {
     this.#ctx = params.ctx;
     this.#publisher = params.publisher;
     this.#tracing = params.tracing;
+    this.#executions = params.meter?.createCounter("job_handler_executions", { description: "Number of job execution attempts" });
+    this.#duration = params.meter?.createHistogram("job_handler_duration", { description: "Job execution duration", unit: "s" });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,6 +118,16 @@ export class BullMQBackend<Ctx extends object> {
           (job, _token, signal) => this.#runHandler(handler, job, signal),
           { ...config, ...handler.options, autorun: false });
         worker.on("error", (error: Error) => this.#ctx.logger.error({ err: error, jobName: name }, "BullMQ worker error"));
+        worker.on("lockRenewalFailed", (jobIds: string[]) => {
+          for (const jobId of jobIds) worker.cancelJob(jobId, "BullMQ lock renewal failed");
+        });
+        worker.on("failed", (job, error) => {
+          if (!job || !handler.onFinalFailure) return;
+
+          const handling = this.#runFinalFailure(handler, job, error);
+          this.#activeFailureHandlers.add(handling);
+          void handling.finally(() => this.#activeFailureHandlers.delete(handling));
+        });
         this.#workers.set(name, worker);
         await worker.waitUntilReady();
       }
@@ -149,6 +171,20 @@ export class BullMQBackend<Ctx extends object> {
     });
   }
 
+  async checkConnection(): Promise<void> {
+    if (!this.#producerConnection && !this.#workers.size) throw new Error("BullMQ is not initialized");
+
+    if (this.#producerConnection) {
+      const client = await this.#producerConnection.client;
+      await client.info();
+    }
+
+    await Promise.all([...this.#workers.values()].map(async worker => {
+      const client = await worker.getBackend().client;
+      await client.info();
+    }));
+  }
+
   async publishBatchJobs(payloads: KTJobPayload[]): Promise<void> {
     const groups = new Map<string, KTJobPayload[]>();
 
@@ -182,8 +218,14 @@ export class BullMQBackend<Ctx extends object> {
     return queue.removeJobScheduler(params.schedulerId);
   }
 
-  #runHandler<Payload extends object>(handler: KTJobHandler<Payload, Ctx & KTLogger>, job: Job<KTJobData, void, string>, signal?: AbortSignal): Promise<void> {
-    return this.#withSpan("process", job.queueName, async (span) => {
+  #runHandler<Payload extends object>(handler: KTJobHandler<Payload, Ctx & KTLogger>, job: Job<KTJobData, void, string>, workerSignal?: AbortSignal): Promise<void> {
+    const controller = new AbortController();
+    const abort = () => controller.abort(workerSignal?.reason);
+    workerSignal?.addEventListener("abort", abort, { once: true });
+    if (workerSignal?.aborted) abort();
+    this.#activeControllers.add(controller);
+    const startedAt = performance.now();
+    const processing = this.#withSpan("process", job.queueName, async (span) => {
       span?.setAttribute("messaging.message.id", job.id ?? "");
       span?.setAttribute("messaging.bullmq.attempts_made", job.attemptsMade);
 
@@ -195,9 +237,50 @@ export class BullMQBackend<Ctx extends object> {
         span?.setAttribute("messaging.bullmq.payload", job.data.message);
       }
 
-      const payload = handler.job.decode(job.data.message);
-      await handler.run([payload], this.#ctx, this.#publisher, { job, signal });
+      const params = { job, signal: controller.signal };
+      let outcome = "failed";
+
+      try {
+        const payloads = [handler.job.decode(job.data.message)];
+        await handler.run(payloads, this.#ctx, this.#publisher, params);
+        outcome = "completed";
+      } catch (error) {
+        this.#ctx.logger.error({ err: error, jobName: job.queueName, jobId: job.id, durationMs: performance.now() - startedAt }, "BullMQ job attempt failed");
+        throw error;
+      } finally {
+        this.#executions?.add(1, { "job.name": job.queueName, "job.outcome": outcome });
+        this.#duration?.record((performance.now() - startedAt) / 1000, { "job.name": job.queueName });
+
+        if (outcome !== "failed") {
+          this.#ctx.logger.info({ jobName: job.queueName, jobId: job.id, outcome, durationMs: performance.now() - startedAt }, "BullMQ job attempt completed");
+        }
+      }
     });
+    this.#activeJobs.add(processing);
+
+    return processing.finally(() => {
+      workerSignal?.removeEventListener("abort", abort);
+      this.#activeControllers.delete(controller);
+      this.#activeJobs.delete(processing);
+    });
+  }
+
+  async #runFinalFailure<Payload extends object>(handler: KTJobHandler<Payload, Ctx & KTLogger>, job: Job<KTJobData, void, string>, error: Error): Promise<void> {
+    const controller = new AbortController();
+    this.#activeControllers.add(controller);
+
+    try {
+      const state = await job.getState();
+      // removeOnFail can delete the job before BullMQ emits its failed event.
+      if (state !== "failed" && state !== "unknown") return;
+
+      const payloads = [handler.job.decode(job.data.message)];
+      await handler.onFinalFailure?.(payloads, this.#ctx, this.#publisher, { job, signal: controller.signal, error });
+    } catch (callbackError) {
+      this.#ctx.logger.error({ err: callbackError, jobName: job.queueName, jobId: job.id }, "BullMQ onFinalFailure callback failed");
+    } finally {
+      this.#activeControllers.delete(controller);
+    }
   }
 
   #withSpan<T>(operation: "publish" | "process", name: string, run: (span?: Span) => Promise<T>): Promise<T> {
@@ -225,10 +308,42 @@ export class BullMQBackend<Ctx extends object> {
     });
   }
 
-  async destroyConsumer(): Promise<void> {
-    await Promise.all([...this.#workers.values()].map(worker => worker.close()));
+  async destroyConsumer({ graceful = true, timeout = 30_000 }: KTBullMQShutdownOptions = {}): Promise<void> {
+    const workers = [...this.#workers.values()];
+    await Promise.all(workers.map(worker => worker.pause(true)));
+    const deadline = performance.now() + timeout;
+    const finished = graceful && await this.#waitForTasks([...this.#activeJobs, ...this.#activeFailureHandlers], timeout);
+    if (!finished) this.#cancelActiveJobs();
+    await Promise.all(workers.map(worker => worker.close(!finished)));
+
+    if (finished) {
+      const callbacksFinished = await this.#waitForTasks([...this.#activeFailureHandlers], Math.max(0, deadline - performance.now()));
+      if (!callbacksFinished) this.#cancelActiveJobs();
+    }
+
     this.#workers.clear();
     this.#consumerConfig = undefined;
+  }
+
+  #cancelActiveJobs() {
+    const reason = new Error("BullMQ consumer stopped before active handlers finished");
+    for (const controller of this.#activeControllers) controller.abort(reason);
+    for (const worker of this.#workers.values()) worker.cancelAllJobs(reason.message);
+  }
+
+  async #waitForTasks(tasks: Promise<void>[], timeout: number): Promise<boolean> {
+    if (!tasks.length) return true;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        Promise.allSettled(tasks).then(() => true),
+        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), timeout); }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async destroyProducer(): Promise<void> {

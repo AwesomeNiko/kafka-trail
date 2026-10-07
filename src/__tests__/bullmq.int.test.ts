@@ -4,9 +4,10 @@ import { describe, expect, it, jest } from "@jest/globals";
 import pino from "pino";
 import { z } from "zod";
 
-import { KTJobHandler, type KTJobRun } from "../bullmq/consumer-handler.js";
+import { KTJobHandler, type KTJobFailureHandler, type KTJobRun } from "../bullmq/consumer-handler.js";
 import { CreateKTJob } from "../bullmq/job.js";
 import { BullMQProducerNotInitializedError, NoJobHandlersError } from "../custom-errors/bullmq-errors.js";
+import { UnrecoverableJobError } from "../index.js";
 import { KTHandler } from "../kafka/consumer-handler.js";
 import { CreateKTTopic } from "../kafka/topic.js";
 import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
@@ -36,6 +37,109 @@ const waitFor = async (condition: () => boolean | Promise<boolean>): Promise<voi
 };
 
 describe("BullMQ through KTMessageQueue", () => {
+  it("reports final failure once after retries and removeOnFail", async () => {
+    const queue = createQueue();
+    const Job = CreateKTJob<Payload>({
+      name: `test.final-failure.${randomUUID()}`,
+      defaultJobOptions: { attempts: 2, backoff: { type: "exponential", delay: 20 }, removeOnFail: true },
+    });
+    const calls: string[] = [];
+    let finalState: string | undefined;
+    const onFinalFailure = jest.fn<KTJobFailureHandler<Payload, Context>>(async (_payload, _ctx, _publisher, { job }) => {
+      finalState = await job.getState();
+      calls.push("final");
+    });
+    queue.registerJobHandlers([KTJobHandler({
+      job: Job,
+      run: () => {
+        calls.push("run");
+
+        return Promise.reject(new Error("temporary"));
+      },
+      onFinalFailure,
+    })]);
+
+    try {
+      await queue.initBullMQProducer(getRedisTestConfig());
+      await queue.initBullMQConsumer(getRedisTestConfig());
+      await queue.publishJob(Job({ value: 42 }));
+      await waitFor(() => calls.includes("final"));
+      expect(calls).toEqual(["run", "run", "final"]);
+      expect(finalState).toBe("unknown");
+      expect(onFinalFailure).toHaveBeenCalledTimes(1);
+      expect(onFinalFailure).toHaveBeenCalledWith([{ value: 42 }], context, queue, expect.objectContaining({ error: expect.any(Error) }));
+    } finally {
+      await queue.destroyAll();
+    }
+  }, INTEGRATION_TEST_TIMEOUT_MS);
+
+  it("reports unrecoverable failures without retrying", async () => {
+    const queue = createQueue();
+    const Job = CreateKTJob<Payload>({ name: `test.unrecoverable.${randomUUID()}`, defaultJobOptions: { attempts: 5 } });
+    const received: number[] = [];
+    let terminalFailures = 0;
+    queue.registerJobHandlers([KTJobHandler({
+      job: Job,
+      run: ([payload]) => {
+        if (payload) received.push(payload.value);
+
+        return Promise.reject(new UnrecoverableJobError("permanent"));
+      },
+      onFinalFailure: () => {
+        terminalFailures++;
+
+        return Promise.resolve();
+      },
+    })]);
+
+    try {
+      await queue.initBullMQProducer(getRedisTestConfig());
+      await queue.initBullMQConsumer(getRedisTestConfig());
+      const failed = await queue.publishJob(Job({ value: 2 }));
+      await waitFor(() => terminalFailures === 1);
+      const stored = await queue.getBullMQQueue(Job.jobSettings.name)?.getJob(failed.id ?? "");
+
+      expect(received).toEqual([2]);
+      expect(stored?.attemptsMade).toBe(1);
+      expect(await failed.getState()).toBe("failed");
+    } finally {
+      await queue.destroyAll();
+    }
+  }, INTEGRATION_TEST_TIMEOUT_MS);
+
+  it("aborts the handler when its Redis lock cannot be renewed", async () => {
+    const queue = createQueue();
+    const Job = createJob();
+    const started = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let signal: AbortSignal | undefined;
+    queue.registerJobHandlers([KTJobHandler({
+      job: Job,
+      options: { lockDuration: 500, lockRenewTime: 100, stalledInterval: 5000 },
+      run: async (_payload, _ctx, _publisher, params) => {
+        signal = params.signal;
+        started.resolve(undefined);
+        await release.promise;
+      },
+    })]);
+
+    try {
+      await queue.initBullMQProducer(getRedisTestConfig());
+      await queue.initBullMQConsumer(getRedisTestConfig());
+      const job = await queue.publishJob(Job({ value: 42 }));
+      await started.promise;
+      const nativeQueue = queue.getBullMQQueue(Job.jobSettings.name);
+      if (!nativeQueue) throw new Error("Native queue is required");
+
+      const client = await nativeQueue.getBackend().client;
+      await client.del(nativeQueue.toKey(`${job.id}:lock`));
+      await waitFor(() => signal?.aborted === true);
+    } finally {
+      release.resolve(undefined);
+      await queue.destroyAll();
+    }
+  }, INTEGRATION_TEST_TIMEOUT_MS);
+
   it("publishes and delivers a typed payload to a consumer with the same context and publisher", async () => {
     const producer = createQueue();
     const consumer = createQueue();

@@ -9,8 +9,10 @@ export type KTJobHandlerOptions = Omit<WorkerOptions, "connection" | "prefix" | 
 
 export type KTJobHandlerParams = {
   job: Job<KTJobData, void, string>
-  signal: AbortSignal | undefined
+  signal: AbortSignal
 }
+
+export type KTJobFailureParams = KTJobHandlerParams & { error: unknown }
 
 export type KTJobRun<Payload extends object, Ctx extends object> = (
   payload: Payload[],
@@ -19,10 +21,18 @@ export type KTJobRun<Payload extends object, Ctx extends object> = (
   jobParams: KTJobHandlerParams,
 ) => Promise<void>
 
+export type KTJobFailureHandler<Payload extends object, Ctx extends object> = (
+  payload: Payload[],
+  ctx: Ctx,
+  publisher: KTPublisher,
+  jobParams: KTJobFailureParams,
+) => Promise<void>
+
 export type KTJobHandler<Payload extends object, Ctx extends object> = {
   job: KTJobEvent<Payload>
   run: KTJobRun<Payload, Ctx>
   options?: KTJobHandlerOptions
+  onFinalFailure?: KTJobFailureHandler<Payload, Ctx>
 }
 
 export const KTJobHandler = <Payload extends object, Ctx extends object>(

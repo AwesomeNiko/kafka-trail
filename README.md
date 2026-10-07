@@ -175,7 +175,7 @@ mq.registerJobHandlers([
       await ctx.sendEmail(payload.email);
       await job.updateProgress(100);
       // publisher can publish both Kafka messages and BullMQ jobs.
-      // signal is BullMQ's cancellation signal when available.
+      // signal is aborted on lock loss or forced shutdown.
     },
   }),
 ]);
@@ -202,7 +202,41 @@ Like `KTHandler`, `KTJobHandler.run` receives `(payloads, ctx, publisher, params
 
 `CreateKTJob(settings, codec)` accepts the same JSON, Zod, AJV and custom codecs as Kafka topic definitions. Metadata includes an automatically generated `traceId` when none is supplied. Job options override definition defaults; definition defaults override producer defaults. `jobId` uses BullMQ's deduplication behavior while that ID remains in the queue. Bulk publication is atomic within each queue; publication across different queues is independent.
 
-Both initializers accept BullMQ options with Redis connection settings. Producer and consumer must use the same Redis database and `prefix`. Worker options on a handler override consumer defaults. `getBullMQQueue(name)` returns a native queue after its first publication or scheduler operation; `getBullMQWorker(name)` returns the running worker. The library owns and closes its Redis connections. `destroyAll()` waits for active handlers before closing producers.
+Both initializers accept BullMQ options with Redis connection settings. Producer and consumer must use the same Redis database and `prefix`. Worker options on a handler override consumer defaults. `getBullMQQueue(name)` returns a native queue after its first publication or scheduler operation; `getBullMQWorker(name)` returns the running worker. The library owns and closes its Redis connections. `checkBullMQConnection()` checks initialized producer and worker connections, including before the first publication.
+
+### BullMQ final failures
+
+Handlers can define an optional `onFinalFailure` callback with the same decoded payload, context, publisher and job parameters as `run`, plus `error` in its fourth argument. It runs after a job becomes terminally failed, including when `removeOnFail` deletes it. Callback errors are logged. Typed callbacks require a successfully decoded payload.
+
+```typescript
+import { UnrecoverableJobError } from "@awesomeniko/kafka-trail";
+
+const ProcessTask = CreateKTJob<{ id: string }>({
+  name: "process.task",
+  defaultJobOptions: { attempts: 5, backoff: { type: "exponential", delay: 1000 } },
+});
+
+mq.registerJobHandlers([
+  KTJobHandler({
+    job: ProcessTask,
+    run: async ([payload], _ctx, _publisher, { signal }) => {
+      if (!payload) return;
+      signal.throwIfAborted();
+      if (!payload.id) throw new UnrecoverableJobError("Task ID is required");
+      // Process the task and pass signal to cancellable operations.
+    },
+    onFinalFailure: async ([payload], _ctx, _publisher, { error }) => {
+      // Application code can store failure state or send a notification.
+    },
+  }),
+]);
+```
+
+`UnrecoverableJobError` stops automatic retries immediately. State storage, outbox reconciliation and domain-specific recovery remain application responsibilities.
+
+`destroyBullMQConsumer({ graceful: true, timeout: 30_000 })` stops taking new jobs and waits for active handlers and final failure callbacks. On timeout, or with `graceful: false`, active signals are aborted and workers are force-closed. Handlers must cooperate with cancellation; JavaScript execution cannot be forcibly terminated. `destroyAll()` accepts the same BullMQ shutdown options and closes producers after consumers. Its timeout applies to BullMQ; Kafka shutdown behavior is unchanged.
+
+BullMQ attempts are logged with job name, ID, result and duration. Passing an OpenTelemetry `meter` to `new KTMessageQueue({ ctx, meter })` enables the `job_handler_executions` counter (with `job.name` and `job.outcome`) and `job_handler_duration` histogram in seconds.
 
 ### BullMQ schedulers
 
@@ -824,7 +858,7 @@ bun run test:int
 ```
 
 Integration tests use the real native LZ4 codec. Unit tests use a mock codec.
-BullMQ integration tests cover publication through handlers, bulk jobs, retries, delays, schema validation, schedulers, graceful shutdown and Kafka → BullMQ → Kafka delivery.
+BullMQ integration tests cover publication through handlers, bulk jobs, retries, final failure callbacks, unrecoverable failures, lock-loss cancellation, delays, schema validation, schedulers, graceful shutdown and Kafka → BullMQ → Kafka delivery.
 The default timeout for each integration test is 30 seconds; set `KAFKA_INT_TEST_TIMEOUT_MS` to override it.
 CI builds the native codec and runs both test suites.
 
