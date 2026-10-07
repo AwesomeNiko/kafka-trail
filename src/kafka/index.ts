@@ -3,6 +3,7 @@ import { clearInterval } from "node:timers";
 import { ArgumentIsRequired, NoHandlersError, ProducerInitRequiredForDLQError, ProducerNotInitializedError } from "../custom-errors/kafka-errors.js";
 import { KafkaMessageKey, KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import { createHandlerTraceAttributes } from "../libs/helpers/observability.js";
+import type { KTObservability } from "../libs/helpers/observability.js";
 import type { KTTracing } from "../libs/helpers/tracing.js";
 
 import type { KTHandler, KTHandlerPublisher } from "./consumer-handler.js";
@@ -49,15 +50,18 @@ class KafkaBackend<Ctx extends object> {
   #ctx: Ctx & KafkaLogger
   #publisher: KTHandlerPublisher
   #tracing: KTTracing
+  #observability: KTObservability
 
   constructor(params: {
     ctx: Ctx & KafkaLogger,
     publisher: KTHandlerPublisher,
     tracing: KTTracing,
+    observability: KTObservability,
   }) {
     this.#ctx = params.ctx
     this.#publisher = params.publisher
     this.#tracing = params.tracing
+    this.#observability = params.observability
   }
 
   getConsumer(): KTKafkaConsumer | undefined {
@@ -138,32 +142,27 @@ class KafkaBackend<Ctx extends object> {
       },
     })
 
-    await this.#tracing.withSpan(`kafka-trail: handler ${params.topicName}`, {
-      kind: this.#tracing.otel?.SpanKind.CONSUMER ?? 0,
-      attributes,
-    }, async (handlerSpan) => {
-      try {
+    try {
+      await this.#observability.withSpan({ system: "kafka", name: params.topicName, operation: "process", attributes }, async () => {
         await params.handler.run(params.batchedValues, this.#ctx, this.#publisher, params.kafkaTopicParams)
-      } catch (err) {
-        const errorMessage = this.#extractErrorMessage(err)
+      })
+    } catch (err) {
+      const errorMessage = this.#extractErrorMessage(err)
 
-        if (params.handler.topic.topicSettings.createDLQ) {
-          await this.#publishToDlq({
-            handler: params.handler,
-            originalOffset: params.lastOffset,
-            originalTopic: params.topicName,
-            originalPartition: params.partition,
-            key: params.failedKey,
-            value: params.batchedValues,
-            errorMessage,
-          })
-        } else {
-          throw err
-        }
-      } finally {
-        handlerSpan?.end()
+      if (params.handler.topic.topicSettings.createDLQ) {
+        await this.#publishToDlq({
+          handler: params.handler,
+          originalOffset: params.lastOffset,
+          originalTopic: params.topicName,
+          originalPartition: params.partition,
+          key: params.failedKey,
+          value: params.batchedValues,
+          errorMessage,
+        })
+      } else {
+        throw err
       }
-    })
+    }
   }
 
   #getRawPayloadContentLength(value: Buffer | string | null | undefined): number {
@@ -243,7 +242,8 @@ class KafkaBackend<Ctx extends object> {
           kind: this.#tracing.otel?.SpanKind.CONSUMER ?? 0,
           attributes: {
             'messaging.system': 'kafka',
-            'messaging.destination': topicNames,
+            'messaging.destination.name': eachMessagePayload.topic,
+            'messaging.operation.name': 'receive',
           },
         }, async (eachMessageSpan) => {
           try {
@@ -280,6 +280,7 @@ class KafkaBackend<Ctx extends object> {
                 },
                 failedKey: KafkaMessageKey.fromString(message.key?.toString()),
               })
+              this.#observability.recordConsumed({ system: "kafka", name: topicName, count: 1, consumerGroup: consumer.consumerGroupId })
             }
           } finally {
             eachMessageSpan?.end()
@@ -301,7 +302,8 @@ class KafkaBackend<Ctx extends object> {
           kind: this.#tracing.otel?.SpanKind.CONSUMER ?? 0,
           attributes: {
             'messaging.system': 'kafka',
-            'messaging.destination': topicNames,
+            'messaging.destination.name': eachBatchPayload.batch.topic,
+            'messaging.operation.name': 'receive',
           },
         }, async (eachBatchSpan) => {
           try {
@@ -319,7 +321,8 @@ class KafkaBackend<Ctx extends object> {
                   kind: this.#tracing.otel?.SpanKind.CONSUMER ?? 0,
                   attributes: {
                     'messaging.system': 'kafka',
-                    'messaging.destination': topicNames,
+                    'messaging.destination.name': topicName,
+                    'messaging.operation.name': 'heartbeat',
                   },
                 }, async (heartbeatSpan) => {
                   try {
@@ -334,6 +337,7 @@ class KafkaBackend<Ctx extends object> {
 
               try {
                 const batchedValues: object[] = [];
+                let messageCount = 0;
                 let lastOffset: string | undefined = undefined
                 let payloadContentLength = 0
 
@@ -347,6 +351,7 @@ class KafkaBackend<Ctx extends object> {
                     }
 
                     lastOffset = message.offset;
+                    messageCount++;
                   } else {
                     break;
                   }
@@ -371,6 +376,8 @@ class KafkaBackend<Ctx extends object> {
                 if (lastOffset) {
                   eachBatchPayload.resolveOffset(lastOffset)
                 }
+
+                this.#observability.recordConsumed({ system: "kafka", name: topicName, count: messageCount, consumerGroup: consumer.consumerGroupId })
               } finally {
                 clearInterval(heartBeatInterval)
               }
@@ -418,26 +425,22 @@ class KafkaBackend<Ctx extends object> {
       return Promise.reject(new ProducerNotInitializedError());
     }
 
-    return this.#tracing.withSpan(`kafka-trail: publishSingleMessage ${topic.topicName}`, {
-      kind: this.#tracing.otel?.SpanKind.PRODUCER ?? 0,
-    }, async (span) => {
-      try {
-        const res = await producer.sendSingleMessage({
-          topicName: topic.topicName,
-          value: topic.message,
-          messageKey: topic.messageKey,
-          headers: topic.meta ?? {},
-        });
-        span?.end()
-
-        return res
-      } catch (error) {
-        span?.recordException(error as Error)
-        span?.setStatus({ code: this.#tracing.otel?.SpanStatusCode.ERROR ?? 2, message: String(error) })
-        span?.end()
-        throw error
-      }
-    })
+    return this.#observability.withSpan({
+      system: "kafka",
+      name: topic.topicName,
+      operation: "publish",
+      attributes: {
+        "messaging.batch.message_count": 1,
+        "messaging.message.body.size": Buffer.byteLength(topic.message),
+        ...(topic.meta.traceId ? { "messaging.trace_id": topic.meta.traceId } : {}),
+        ...(this.#tracing.addPayloadToTrace ? { "messaging.payload": topic.message } : {}),
+      },
+    }, () => producer.sendSingleMessage({
+      topicName: topic.topicName,
+      value: topic.message,
+      messageKey: topic.messageKey,
+      headers: topic.meta ?? {},
+    }))
   }
 
   publishBatchMessages(topic: KTTopicBatchPayload) {
@@ -447,24 +450,16 @@ class KafkaBackend<Ctx extends object> {
       return Promise.reject(new ProducerNotInitializedError());
     }
 
-    return this.#tracing.withSpan(`kafka-trail: publishBatchMessages ${topic.topicName}`, {
-      kind: this.#tracing.otel?.SpanKind.PRODUCER ?? 0,
+    return this.#observability.withSpan({
+      system: "kafka",
+      name: topic.topicName,
+      operation: "publish",
+      messageCount: topic.messages.length,
       attributes: {
-        messageSize: topic.messages.length,
+        "messaging.batch.message_count": topic.messages.length,
+        "messaging.message.body.size": topic.messages.reduce((total, message) => total + this.#getRawPayloadContentLength(message.value), 0),
       },
-    }, async (span) => {
-      try {
-        const res = await producer.sendBatchMessages(topic);
-        span?.end()
-
-        return res
-      } catch (error) {
-        span?.recordException(error as Error)
-        span?.setStatus({ code: this.#tracing.otel?.SpanStatusCode.ERROR ?? 2, message: String(error) })
-        span?.end()
-        throw error
-      }
-    })
+    }, () => producer.sendBatchMessages(topic))
   }
 }
 

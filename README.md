@@ -60,7 +60,9 @@ bun run build
 
 This setup does not require `python`, `node-gyp`, or a C++ Node addon toolchain.
 
-### OpenTelemetry tracing
+### OpenTelemetry observability
+
+Kafka and BullMQ share the same tracing and metrics implementation. Pass `tracingSettings.otel` to enable tracing and `meter` to enable metrics; they can be enabled independently.
 
 `KTMessageQueue` no longer relies on its own runtime copy of `@opentelemetry/api`.
 
@@ -77,6 +79,7 @@ import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
 const kafkaBrokerUrls = ["localhost:19092"];
 
 const messageQueue = new KTMessageQueue({
+  meter: otel.metrics.getMeter("my-service"),
   tracingSettings: {
     otel,
     addPayloadToTrace: false,
@@ -94,6 +97,37 @@ await messageQueue.initProducer({
 ```
 
 If your application uses a wrapper package like `observability`, pass the OpenTelemetry API object from there instead of importing a separate copy directly.
+
+Both backends create `PRODUCER` spans for publication and `CONSUMER` spans for processing, named `kafka-trail: <kafka|bullmq> <publish|process> <topic-or-queue>`. They share `messaging.system`, `messaging.destination.name`, `messaging.operation.name`, `messaging.batch.message_count` and `messaging.message.body.size` attributes. Payloads are attached as `messaging.payload` only when `addPayloadToTrace` is enabled. Kafka also records partition and offset; BullMQ records job ID and attempts made. Failed operations record their exception and set the span status to `ERROR`. Spans close on success and failure.
+
+Passing a `meter` enables these shared instruments:
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `message_handler_executions` | Counter | Processing attempts, including retries. |
+| `message_handler_duration` | Histogram, seconds | Duration of a processing attempt. |
+| `messages_produced` | Counter | Messages in successful publication calls. |
+| `messages_consumed` | Counter | Kafka records whose processing finished, or BullMQ jobs confirmed completed. |
+
+The handler metrics use `messaging.system` (`kafka` or `bullmq`), `messaging.destination.name` (topic or queue) and `messaging.handler.outcome` (`completed` or `failed`). Kafka batches count once per handler invocation. A Kafka handler failure counts as `failed` even when subsequent DLQ publication succeeds. Publication spans do not increment handler metrics.
+
+The throughput counters use `messaging.system` and `messaging.destination.name`. Kafka `messages_consumed` also includes `messaging.consumer.group.name`, so independent consumer groups can be compared to production separately. IDs, payloads and errors are excluded from their attributes.
+
+`messages_produced` counts one message per single publication and the actual batch size after a successful bulk publication. A bulk call across BullMQ queues is counted separately for each successful queue operation. `messages_consumed` counts processed Kafka records, including tombstones and records successfully routed to DLQ; failed processing attempts are excluded. In batch mode it counts only the records handled and resolved in that batch. BullMQ consumption is counted on the worker's `completed` event, after Redis confirms completion, rather than when the handler returns or retries.
+
+For Grafana with Prometheus, use `rate()` for messages per second and `increase()` for messages over an interval. Assuming your exporter uses normalized labels and the `_total` counter suffix, these queries compare one Kafka topic and consumer group across application replicas:
+
+```promql
+# Produced messages/second
+sum(rate(messages_produced_total{messaging_system="kafka", messaging_destination_name="events"}[5m])) or vector(0)
+
+# Consumed messages/second for one consumer group
+sum(rate(messages_consumed_total{messaging_system="kafka", messaging_destination_name="events", messaging_consumer_group_name="my-group"}[5m])) or vector(0)
+```
+
+Subtract consumed rate from produced rate in Grafana. For BullMQ, select `messaging_system="bullmq"` and the queue name, without a consumer-group filter. A positive difference indicates an imbalance in flow, rather than an exact queue depth: Kafka records can be redelivered, BullMQ deduplication can accept a publication without adding a job, and scheduler-generated jobs bypass these publication calls. Use Kafka consumer lag or BullMQ queue counts to measure the actual backlog.
+
+These instruments replace the previous BullMQ-only `job_handler_executions` and `job_handler_duration` metrics. Transport-specific payload trace attributes are now unified as `messaging.payload`; payload size is recorded as `messaging.message.body.size`.
 
 If you prefer, you can also pass only the required OpenTelemetry fields explicitly:
 
@@ -248,7 +282,7 @@ mq.registerJobHandlers([
 
 `destroyBullMQConsumer({ graceful: true, timeout: 30_000 })` stops taking new jobs and waits for active handlers and final failure callbacks. On timeout, or with `graceful: false`, active signals are aborted and workers are force-closed. Handlers must cooperate with cancellation; JavaScript execution cannot be forcibly terminated. `destroyAll()` accepts the same BullMQ shutdown options and closes producers after consumers. Its timeout applies to BullMQ; Kafka shutdown behavior is unchanged.
 
-BullMQ attempts are logged with job name, ID, result and duration. Passing an OpenTelemetry `meter` to `new KTMessageQueue({ ctx, meter })` enables the `job_handler_executions` counter (with `job.name` and `job.outcome`) and `job_handler_duration` histogram in seconds.
+BullMQ attempts are logged with job name, ID, result and duration. Tracing and metrics use the shared OpenTelemetry configuration described above.
 
 ### BullMQ schedulers
 

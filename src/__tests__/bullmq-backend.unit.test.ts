@@ -1,12 +1,13 @@
 import { EventEmitter } from "node:events";
 
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import type { Meter } from "@opentelemetry/api";
 import type { Job, WorkerOptions } from "bullmq";
 import pino from "pino";
 
 import { KTJobHandler, type KTJobRun } from "../bullmq/consumer-handler.js";
 import { CreateKTJob, type KTJobData } from "../bullmq/job.js";
+
+import { createMeterMocks, createTracingMocks } from "./mocks/observability.js";
 
 type NativeJob = Job<KTJobData, void, string>
 type Processor = (job: NativeJob, token?: string, signal?: AbortSignal) => Promise<void>
@@ -31,6 +32,8 @@ class TestWorker extends EventEmitter {
 }
 
 class TestQueue extends EventEmitter {
+  readonly add = jest.fn<() => Promise<NativeJob>>().mockImplementation(() => Promise.resolve(createNativeJob()));
+  readonly addBulk = jest.fn<() => Promise<NativeJob[]>>().mockResolvedValue([]);
   readonly close = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
 }
 
@@ -250,12 +253,7 @@ describe("BullMQ backend through KTMessageQueue", () => {
   });
 
   it("records successful and failed attempts through the supplied meter and logger", async () => {
-    const addMetric = jest.fn();
-    const record = jest.fn();
-    const meter = {
-      createCounter: jest.fn(() => ({ add: addMetric })),
-      createHistogram: jest.fn(() => ({ record })),
-    } as unknown as Meter;
+    const { add: addMetric, record, meter } = createMeterMocks();
     const info = jest.spyOn(logger, "info");
     const errorLog = jest.spyOn(logger, "error");
     const queue = new KTMessageQueue({ ctx: () => context, meter });
@@ -268,15 +266,106 @@ describe("BullMQ backend through KTMessageQueue", () => {
     await expect(firstWorker().processor(createNativeJob())).rejects.toBe(error);
 
     expect(addMetric.mock.calls).toEqual([
-      [1, { "job.name": "unit.job", "job.outcome": "completed" }],
-      [1, { "job.name": "unit.job", "job.outcome": "failed" }],
+      [1, { "messaging.system": "bullmq", "messaging.destination.name": "unit.job", "messaging.handler.outcome": "completed" }],
+      [1, { "messaging.system": "bullmq", "messaging.destination.name": "unit.job", "messaging.handler.outcome": "failed" }],
     ]);
     expect(record).toHaveBeenCalledTimes(2);
-    expect(record).toHaveBeenCalledWith(expect.any(Number), { "job.name": "unit.job" });
+    expect(record).toHaveBeenCalledWith(expect.any(Number), { "messaging.system": "bullmq", "messaging.destination.name": "unit.job", "messaging.handler.outcome": "failed" });
     expect(info).toHaveBeenCalledWith(expect.objectContaining({ jobId: "stable-id", outcome: "completed" }), "BullMQ job attempt completed");
     expect(errorLog).toHaveBeenCalledWith(expect.objectContaining({ err: error, jobId: "stable-id" }), "BullMQ job attempt failed");
     await queue.destroyAll();
     info.mockRestore();
     errorLog.mockRestore();
+  });
+
+  it("counts BullMQ single and bulk publication and excludes rejected requests", async () => {
+    const metrics = createMeterMocks();
+    const queue = new KTMessageQueue({ ctx: () => context, meter: metrics.meter });
+    const Other = CreateKTJob<{ value: number }>({ name: "other.job" });
+    await queue.initBullMQProducer(config);
+    await queue.publishJob(Definition({ value: 1 }));
+    await queue.publishBatchJobs([Definition({ value: 2 }), Definition({ value: 3 }), Other({ value: 4 })]);
+    await queue.publishBatchJobs([]);
+    const nativeQueue = queue.getBullMQQueue(Definition.jobSettings.name);
+    if (!nativeQueue) throw new Error("Queue was not initialized");
+    const error = new Error("Redis unavailable");
+    jest.spyOn(nativeQueue, "add").mockRejectedValueOnce(error);
+    await expect(queue.publishJob(Definition({ value: 5 }))).rejects.toBe(error);
+    jest.spyOn(nativeQueue, "addBulk").mockRejectedValueOnce(error);
+    await expect(queue.publishBatchJobs([Definition({ value: 6 })])).rejects.toBe(error);
+
+    expect(metrics.produced.mock.calls).toEqual([
+      [1, { "messaging.system": "bullmq", "messaging.destination.name": "unit.job" }],
+      [2, { "messaging.system": "bullmq", "messaging.destination.name": "unit.job" }],
+      [1, { "messaging.system": "bullmq", "messaging.destination.name": "other.job" }],
+    ]);
+    expect(metrics.consumed).not.toHaveBeenCalled();
+    await queue.destroyAll();
+  });
+
+  it("counts consumption on BullMQ completion rather than processor attempts", async () => {
+    const metrics = createMeterMocks();
+    const queue = new KTMessageQueue({ ctx: () => context, meter: metrics.meter });
+    const error = new Error("retrying");
+    const run = jest.fn<KTJobRun<{ value: number }, typeof context>>().mockRejectedValueOnce(error).mockResolvedValue(undefined);
+    queue.registerJobHandlers([KTJobHandler({ job: Definition, run })]);
+    await queue.initBullMQConsumer(config);
+    const worker = firstWorker();
+    const job = createNativeJob();
+    await expect(worker.processor(job)).rejects.toBe(error);
+    worker.emit("failed", job, error, "active");
+    expect(metrics.consumed).not.toHaveBeenCalled();
+
+    await worker.processor(job);
+    expect(metrics.consumed).not.toHaveBeenCalled();
+    worker.emit("completed", job, undefined, "active");
+    expect(metrics.consumed.mock.calls).toEqual([[1, { "messaging.system": "bullmq", "messaging.destination.name": "unit.job" }]]);
+    expect(metrics.add).toHaveBeenCalledTimes(2);
+    await queue.destroyAll();
+  });
+
+  it.each([false, true])("traces BullMQ publication and processing with optional payloads (payload=%s)", async addPayloadToTrace => {
+    const tracing = createTracingMocks();
+    const metrics = createMeterMocks();
+    const queue = new KTMessageQueue({ ctx: () => context, meter: metrics.meter, tracingSettings: { otel: tracing.otel, addPayloadToTrace } });
+    const error = new Error("handler failed");
+    queue.registerJobHandlers([KTJobHandler({ job: Definition, run: () => Promise.reject(error) })]);
+
+    try {
+      await queue.initBullMQProducer(config);
+      await queue.initBullMQConsumer(config);
+      const payload = Definition({ value: 42 });
+      await queue.publishJob(payload);
+      await queue.publishBatchJobs([payload, payload]);
+      expect(metrics.add).not.toHaveBeenCalled();
+      await expect(firstWorker().processor(createNativeJob())).rejects.toBe(error);
+      expect(tracing.spans.map(span => span.name)).toEqual([
+        "kafka-trail: bullmq publish unit.job",
+        "kafka-trail: bullmq publish unit.job",
+        "kafka-trail: bullmq process unit.job",
+      ]);
+
+      for (const [index, traced] of tracing.spans.entries()) {
+        expect(traced.options?.attributes).toEqual(expect.objectContaining({
+          "messaging.system": "bullmq",
+          "messaging.destination.name": "unit.job",
+          "messaging.operation.name": index < 2 ? "publish" : "process",
+          "messaging.batch.message_count": index === 1 ? 2 : 1,
+        }));
+        expect(traced.options?.kind).toBe(index < 2 ? tracing.otel.SpanKind.PRODUCER : tracing.otel.SpanKind.CONSUMER);
+        expect(traced.span.end).toHaveBeenCalledTimes(1);
+      }
+
+      const processing = tracing.spans[2]?.span;
+      expect(processing?.recordException).toHaveBeenCalledWith(error);
+      expect(processing?.setStatus).toHaveBeenCalledWith({ code: tracing.otel.SpanStatusCode.ERROR, message: String(error) });
+      expect(processing?.setAttribute).toHaveBeenCalledWith("messaging.message.id", "stable-id");
+      expect(processing?.setAttribute).toHaveBeenCalledWith("messaging.bullmq.attempts_made", 1);
+      expect(processing?.setAttribute.mock.calls.some(([name]) => name === "messaging.payload")).toBe(addPayloadToTrace);
+      expect(tracing.spans[0]?.options?.attributes?.["messaging.payload"]).toBe(addPayloadToTrace ? payload.data.message : undefined);
+      await queue.destroyAll();
+    } finally {
+      tracing.restore();
+    }
   });
 });

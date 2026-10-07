@@ -1,9 +1,9 @@
-import type { Counter, Histogram, Meter, Span } from "@opentelemetry/api";
 import { Queue, RedisConnection, Worker } from "bullmq";
 import type { Job, QueueOptions, RedisOptions, WorkerOptions } from "bullmq";
 
 import { BullMQProducerNotInitializedError, NoJobHandlersError } from "../custom-errors/bullmq-errors.js";
 import type { KTLogger } from "../libs/helpers/logger.js";
+import type { KTObservability } from "../libs/helpers/observability.js";
 import type { KTTracing } from "../libs/helpers/tracing.js";
 import type { KTPublisher } from "../message-queue/publisher.js";
 
@@ -37,15 +37,13 @@ export class BullMQBackend<Ctx extends object> {
   #activeControllers = new Set<AbortController>();
   #activeJobs = new Set<Promise<void>>();
   #activeFailureHandlers = new Set<Promise<void>>();
-  #executions: Counter | undefined;
-  #duration: Histogram | undefined;
+  #observability: KTObservability;
 
-  constructor(params: { ctx: Ctx & KTLogger, publisher: KTPublisher, tracing: KTTracing, meter?: Meter }) {
+  constructor(params: { ctx: Ctx & KTLogger, publisher: KTPublisher, tracing: KTTracing, observability: KTObservability }) {
     this.#ctx = params.ctx;
     this.#publisher = params.publisher;
     this.#tracing = params.tracing;
-    this.#executions = params.meter?.createCounter("job_handler_executions", { description: "Number of job execution attempts" });
-    this.#duration = params.meter?.createHistogram("job_handler_duration", { description: "Job execution duration", unit: "s" });
+    this.#observability = params.observability;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -118,6 +116,7 @@ export class BullMQBackend<Ctx extends object> {
           (job, _token, signal) => this.#runHandler(handler, job, signal),
           { ...config, ...handler.options, autorun: false });
         worker.on("error", (error: Error) => this.#ctx.logger.error({ err: error, jobName: name }, "BullMQ worker error"));
+        worker.on("completed", () => this.#observability.recordConsumed({ system: "bullmq", name, count: 1 }));
         worker.on("lockRenewalFailed", (jobIds: string[]) => {
           for (const jobId of jobIds) worker.cancelJob(jobId, "BullMQ lock renewal failed");
         });
@@ -164,7 +163,17 @@ export class BullMQBackend<Ctx extends object> {
   }
 
   publishJob(payload: KTJobPayload): Promise<Job<KTJobData, void, string>> {
-    return this.#withSpan("publish", payload.jobName, async () => {
+    return this.#observability.withSpan({
+      system: "bullmq",
+      name: payload.jobName,
+      operation: "publish",
+      attributes: {
+        "messaging.batch.message_count": 1,
+        "messaging.message.body.size": Buffer.byteLength(payload.data.message),
+        ...(payload.data.meta.traceId ? { "messaging.trace_id": payload.data.meta.traceId } : {}),
+        ...(this.#tracing.addPayloadToTrace ? { "messaging.payload": payload.data.message } : {}),
+      },
+    }, async () => {
       const queue = await this.#queue(payload.jobName);
 
       return queue.add(payload.jobName, payload.data, payload.options);
@@ -194,7 +203,16 @@ export class BullMQBackend<Ctx extends object> {
       groups.set(payload.jobName, group);
     }
 
-    await Promise.all([...groups].map(([name, jobs]) => this.#withSpan("publish", name, async () => {
+    await Promise.all([...groups].map(([name, jobs]) => this.#observability.withSpan({
+      system: "bullmq",
+      name,
+      operation: "publish",
+      messageCount: jobs.length,
+      attributes: {
+        "messaging.batch.message_count": jobs.length,
+        "messaging.message.body.size": jobs.reduce((total, job) => total + Buffer.byteLength(job.data.message), 0),
+      },
+    }, async () => {
       const queue = await this.#queue(name);
       await queue.addBulk(jobs.map(job => ({ name, data: job.data, opts: job.options })));
     })));
@@ -225,7 +243,15 @@ export class BullMQBackend<Ctx extends object> {
     if (workerSignal?.aborted) abort();
     this.#activeControllers.add(controller);
     const startedAt = performance.now();
-    const processing = this.#withSpan("process", job.queueName, async (span) => {
+    const processing = this.#observability.withSpan({
+      system: "bullmq",
+      name: job.queueName,
+      operation: "process",
+      attributes: {
+        "messaging.batch.message_count": 1,
+        "messaging.message.body.size": Buffer.byteLength(job.data.message),
+      },
+    }, async (span) => {
       span?.setAttribute("messaging.message.id", job.id ?? "");
       span?.setAttribute("messaging.bullmq.attempts_made", job.attemptsMade);
 
@@ -234,7 +260,7 @@ export class BullMQBackend<Ctx extends object> {
       }
 
       if (this.#tracing.addPayloadToTrace) {
-        span?.setAttribute("messaging.bullmq.payload", job.data.message);
+        span?.setAttribute("messaging.payload", job.data.message);
       }
 
       const params = { job, signal: controller.signal };
@@ -248,9 +274,6 @@ export class BullMQBackend<Ctx extends object> {
         this.#ctx.logger.error({ err: error, jobName: job.queueName, jobId: job.id, durationMs: performance.now() - startedAt }, "BullMQ job attempt failed");
         throw error;
       } finally {
-        this.#executions?.add(1, { "job.name": job.queueName, "job.outcome": outcome });
-        this.#duration?.record((performance.now() - startedAt) / 1000, { "job.name": job.queueName });
-
         if (outcome !== "failed") {
           this.#ctx.logger.info({ jobName: job.queueName, jobId: job.id, outcome, durationMs: performance.now() - startedAt }, "BullMQ job attempt completed");
         }
@@ -281,31 +304,6 @@ export class BullMQBackend<Ctx extends object> {
     } finally {
       this.#activeControllers.delete(controller);
     }
-  }
-
-  #withSpan<T>(operation: "publish" | "process", name: string, run: (span?: Span) => Promise<T>): Promise<T> {
-    const otel = this.#tracing.otel;
-
-    return this.#tracing.withSpan(`kafka-trail: bullmq ${operation} ${name}`, {
-      ...(otel ? { kind: operation === "publish" ? otel.SpanKind.PRODUCER : otel.SpanKind.CONSUMER } : {}),
-      attributes: { "messaging.system": "bullmq", "messaging.destination.name": name, "messaging.operation.name": operation },
-    }, async (span) => {
-      try {
-        return await run(span);
-      } catch (error) {
-        if (error instanceof Error) {
-          span?.recordException(error);
-        }
-
-        if (otel) {
-          span?.setStatus({ code: otel.SpanStatusCode.ERROR, message: String(error) });
-        }
-
-        throw error;
-      } finally {
-        span?.end();
-      }
-    });
   }
 
   async destroyConsumer({ graceful = true, timeout = 30_000 }: KTBullMQShutdownOptions = {}): Promise<void> {
