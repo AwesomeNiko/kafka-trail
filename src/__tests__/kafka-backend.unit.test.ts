@@ -12,13 +12,14 @@ import { KafkaClientId, KafkaMessageKey, KafkaTopicName } from "../libs/branded-
 import { KTMessageQueue } from "../message-queue/index.js";
 
 import { createKafkaMocks } from "./mocks/create-mocks.js";
+import { createMeterMocks, createTracingMocks } from "./mocks/observability.js";
 
 type Payload = { value: number }
 type BatchInput = Array<{ value: Payload, key: KafkaMessageKey }>
 type TestContext = { serviceName: string, logger: pino.Logger }
 
 const topicName = KafkaTopicName.fromString("test.kafka.backend");
-const { kafkaConsumerMock, sendMsgFn } = createKafkaMocks({ topicName });
+const { kafkaConsumerMock, kafkaAdminMock, kafkaAdminDisconnectFn, describeClusterFn, describeGroupFn, sendMsgFn } = createKafkaMocks({ topicName });
 const consumerRun = jest.fn<Consumer["run"]>().mockResolvedValue(undefined);
 const createConsumer = kafkaConsumerMock.getMockImplementation();
 
@@ -122,6 +123,79 @@ describe("Kafka backend through KTMessageQueue", () => {
     jest.clearAllMocks();
   });
 
+  it("rejects a Kafka healthcheck before initialization and after shutdown", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    await expect(queue.checkKafkaConnection()).rejects.toThrow("Kafka is not initialized");
+    expect(describeClusterFn).not.toHaveBeenCalled();
+    expect(describeGroupFn).not.toHaveBeenCalled();
+
+    await queue.initProducer(kafkaConfig);
+    await queue.destroyProducer();
+
+    await expect(queue.checkKafkaConnection()).rejects.toThrow("Kafka is not initialized");
+    expect(describeClusterFn).not.toHaveBeenCalled();
+    expect(describeGroupFn).not.toHaveBeenCalled();
+  });
+
+  it("checks Kafka through the existing producer admin and propagates broker errors", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    await queue.initProducer(kafkaConfig);
+    await expect(queue.checkKafkaConnection()).resolves.toBeUndefined();
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    expect(describeClusterFn).toHaveBeenCalledTimes(1);
+
+    const error = new Error("Kafka unavailable");
+    describeClusterFn.mockRejectedValueOnce(error);
+    await expect(queue.checkKafkaConnection()).rejects.toBe(error);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    await queue.destroyProducer();
+  });
+
+  it("checks consumer-only Kafka through the existing consumer and propagates broker errors", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    queue.registerHandlers([KTHandler({ topic: createTopic(), run: () => Promise.resolve() })]);
+    await queue.initConsumer(kafkaConfig);
+    expect(kafkaAdminMock).not.toHaveBeenCalled();
+
+    await Promise.all([queue.checkKafkaConnection(), queue.checkKafkaConnection()]);
+    expect(describeGroupFn).toHaveBeenCalledTimes(2);
+    expect(describeClusterFn).not.toHaveBeenCalled();
+    expect(kafkaAdminMock).not.toHaveBeenCalled();
+
+    const error = new Error("Kafka authentication failed");
+    describeGroupFn.mockRejectedValueOnce(error);
+    await expect(queue.checkKafkaConnection()).rejects.toBe(error);
+    await queue.destroyConsumer();
+    expect(kafkaAdminDisconnectFn).not.toHaveBeenCalled();
+    await expect(queue.checkKafkaConnection()).rejects.toThrow("Kafka is not initialized");
+    expect(describeGroupFn).toHaveBeenCalledTimes(3);
+  });
+
+  it("prefers the producer admin and uses the consumer only when the producer is absent", async () => {
+    const queue = new KTMessageQueue({ ctx: () => context });
+    queue.registerHandlers([KTHandler({ topic: createTopic(), run: () => Promise.resolve() })]);
+    await queue.initProducer(kafkaConfig);
+    await queue.initConsumer(kafkaConfig);
+    await queue.checkKafkaConnection();
+    expect(describeClusterFn).toHaveBeenCalledTimes(1);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+
+    const error = new Error("Kafka unavailable");
+    describeClusterFn.mockRejectedValueOnce(error);
+    await expect(queue.checkKafkaConnection()).rejects.toBe(error);
+    expect(describeClusterFn).toHaveBeenCalledTimes(2);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    expect(describeGroupFn).not.toHaveBeenCalled();
+
+    await queue.destroyProducer();
+    await queue.checkKafkaConnection();
+    expect(describeGroupFn).toHaveBeenCalledTimes(1);
+    expect(describeClusterFn).toHaveBeenCalledTimes(2);
+    expect(kafkaAdminMock).toHaveBeenCalledTimes(1);
+    await queue.destroyAll();
+    expect(kafkaAdminDisconnectFn).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     { batchConsuming: false, concurrency: undefined, expected: 1 },
     { batchConsuming: true, concurrency: undefined, expected: 1 },
@@ -142,6 +216,105 @@ describe("Kafka backend through KTMessageQueue", () => {
 
     expect(consumerRun).toHaveBeenCalledTimes(1);
     expect(consumerRun.mock.calls[0]?.[0]?.partitionsConsumedConcurrently).toBe(expected);
+  });
+
+  it.each([false, true])("records one metric sample per Kafka handler attempt (batch=%s)", async batchConsuming => {
+    const metrics = createMeterMocks();
+    const queue = new KTMessageQueue({ ctx: () => context, meter: metrics.meter });
+    const error = new Error("handler failed");
+    const run = jest.fn<KTRun<Payload, TestContext>>().mockResolvedValueOnce(undefined).mockRejectedValueOnce(error);
+    queue.registerHandlers([KTHandler({ topic: createTopic(), run })]);
+    await queue.initConsumer({ ...kafkaConfig, kafkaSettings: { ...kafkaConfig.kafkaSettings, batchConsuming } });
+    await consume(batchConsuming);
+    await expect(consume(batchConsuming)).rejects.toBe(error);
+
+    expect(metrics.createCounter).toHaveBeenCalledTimes(3);
+    expect(metrics.createHistogram).toHaveBeenCalledTimes(1);
+    expect(metrics.add.mock.calls).toEqual([
+      [1, { "messaging.system": "kafka", "messaging.destination.name": topicName, "messaging.handler.outcome": "completed" }],
+      [1, { "messaging.system": "kafka", "messaging.destination.name": topicName, "messaging.handler.outcome": "failed" }],
+    ]);
+    expect(metrics.record).toHaveBeenCalledTimes(2);
+    expect(metrics.record).toHaveBeenCalledWith(expect.any(Number), { "messaging.system": "kafka", "messaging.destination.name": topicName, "messaging.handler.outcome": "failed" });
+    expect(metrics.consumed.mock.calls).toEqual([[batchConsuming ? 2 : 1, {
+      "messaging.system": "kafka", "messaging.destination.name": topicName, "messaging.consumer.group.name": kafkaConfig.kafkaSettings.consumerGroupId,
+    }]]);
+    await queue.destroyAll();
+  });
+
+  it("records a Kafka handler failure even when DLQ publication succeeds", async () => {
+    const metrics = createMeterMocks();
+    const tracing = createTracingMocks();
+    const queue = new KTMessageQueue({ ctx: () => context, meter: metrics.meter, tracingSettings: { otel: tracing.otel, addPayloadToTrace: false } });
+    const error = new Error("handler failed");
+    queue.registerHandlers([KTHandler({ topic: createTopic(true), run: () => Promise.reject(error) })]);
+
+    try {
+      await queue.initProducer(kafkaConfig);
+      await queue.initConsumer(kafkaConfig);
+      await expect(consume(false)).resolves.toBeUndefined();
+      expect(metrics.add.mock.calls).toEqual([[1, { "messaging.system": "kafka", "messaging.destination.name": topicName, "messaging.handler.outcome": "failed" }]]);
+      const process = tracing.spans.find(span => span.options?.attributes?.["messaging.operation.name"] === "process");
+      expect(process?.span.recordException).toHaveBeenCalledWith(error);
+      expect(process?.span.setStatus).toHaveBeenCalledWith({ code: tracing.otel.SpanStatusCode.ERROR, message: String(error) });
+      expect(process?.span.end).toHaveBeenCalledTimes(1);
+      expect(sendMsgFn).toHaveBeenCalledTimes(1);
+      expect(metrics.consumed).toHaveBeenCalledWith(1, {
+        "messaging.system": "kafka", "messaging.destination.name": topicName, "messaging.consumer.group.name": kafkaConfig.kafkaSettings.consumerGroupId,
+      });
+      expect(metrics.produced).toHaveBeenCalledWith(1, { "messaging.system": "kafka", "messaging.destination.name": `dlq.${topicName}` });
+      await queue.destroyAll();
+    } finally {
+      tracing.restore();
+    }
+  });
+
+  it("traces Kafka single and batch publication without counting them as handler attempts", async () => {
+    const metrics = createMeterMocks();
+    const tracing = createTracingMocks();
+    const queue = new KTMessageQueue({ ctx: () => context, meter: metrics.meter, tracingSettings: { otel: tracing.otel, addPayloadToTrace: false } });
+    const payload = createTopic()({ value: 1 }, { messageKey: KafkaMessageKey.NULL, meta: {} });
+    const error = new Error("publication failed");
+
+    try {
+      await queue.initProducer(kafkaConfig);
+      await queue.publishSingleMessage(payload);
+      await queue.publishBatchMessages({
+        topicName,
+        messages: [
+          { value: payload.message, key: payload.messageKey, headers: payload.meta },
+          { value: payload.message, key: payload.messageKey, headers: payload.meta },
+        ],
+      });
+      sendMsgFn.mockRejectedValueOnce(error);
+      await expect(queue.publishSingleMessage(payload)).rejects.toBe(error);
+      expect(metrics.add).not.toHaveBeenCalled();
+      expect(metrics.produced.mock.calls).toEqual([
+        [1, { "messaging.system": "kafka", "messaging.destination.name": topicName }],
+        [2, { "messaging.system": "kafka", "messaging.destination.name": topicName }],
+      ]);
+
+      for (const [index, traced] of tracing.spans.entries()) {
+        expect(traced.name).toBe(`kafka-trail: kafka publish ${topicName}`);
+        expect(traced.options).toEqual({
+          kind: tracing.otel.SpanKind.PRODUCER,
+          attributes: expect.objectContaining({
+            "messaging.system": "kafka",
+            "messaging.destination.name": topicName,
+            "messaging.operation.name": "publish",
+            "messaging.batch.message_count": index === 1 ? 2 : 1,
+            "messaging.message.body.size": Buffer.byteLength(payload.message) * (index === 1 ? 2 : 1),
+          }),
+        });
+        expect(traced.span.end).toHaveBeenCalledTimes(1);
+      }
+
+      expect(tracing.spans[2]?.span.recordException).toHaveBeenCalledWith(error);
+      expect(tracing.spans[2]?.span.setStatus).toHaveBeenCalledWith({ code: tracing.otel.SpanStatusCode.ERROR, message: String(error) });
+      await queue.destroyAll();
+    } finally {
+      tracing.restore();
+    }
   });
 
   it("preserves the handler context and facade publisher", async () => {
@@ -245,12 +418,13 @@ describe("Kafka backend through KTMessageQueue", () => {
   });
 
   it.each([
-    { name: "tombstone-only batches", values: [null, null, null], expectedValues: [], expectedOffset: "12" },
-    { name: "trailing tombstones", values: [1, null, null], expectedValues: [{ value: 1 }], expectedOffset: "12" },
-    { name: "mixed batches", values: [null, 1, null, 2, 3], expectedValues: [{ value: 1 }, { value: 2 }], expectedOffset: "13" },
-    { name: "tombstones beyond the batch limit", values: [1, 2, null, 3], expectedValues: [{ value: 1 }, { value: 2 }], expectedOffset: "11" },
-  ])("resolves the last consumed offset for $name", async ({ values, expectedValues, expectedOffset }) => {
-    const queue = new KTMessageQueue({ ctx: () => context });
+    { name: "tombstone-only batches", values: [null, null, null], expectedValues: [], expectedOffset: "12", expectedCount: 3 },
+    { name: "trailing tombstones", values: [1, null, null], expectedValues: [{ value: 1 }], expectedOffset: "12", expectedCount: 3 },
+    { name: "mixed batches", values: [null, 1, null, 2, 3], expectedValues: [{ value: 1 }, { value: 2 }], expectedOffset: "13", expectedCount: 4 },
+    { name: "tombstones beyond the batch limit", values: [1, 2, null, 3], expectedValues: [{ value: 1 }, { value: 2 }], expectedOffset: "11", expectedCount: 2 },
+  ])("resolves the last consumed offset for $name", async ({ values, expectedValues, expectedOffset, expectedCount }) => {
+    const metrics = createMeterMocks();
+    const queue = new KTMessageQueue({ ctx: () => context, meter: metrics.meter });
     const run = jest.fn<KTRun<Payload, TestContext>>().mockResolvedValue(undefined);
     const batchPayload = createEachBatchPayload();
     batchPayload.batch.messages = values.map((value, index) => ({
@@ -272,6 +446,9 @@ describe("Kafka backend through KTMessageQueue", () => {
     });
     expect(batchPayload.resolveOffset).toHaveBeenCalledTimes(1);
     expect(batchPayload.resolveOffset).toHaveBeenCalledWith(expectedOffset);
+    expect(metrics.consumed.mock.calls).toEqual([[expectedCount, {
+      "messaging.system": "kafka", "messaging.destination.name": topicName, "messaging.consumer.group.name": kafkaConfig.kafkaSettings.consumerGroupId,
+    }]]);
   });
 
   it.each([false, true])("propagates handler errors without DLQ (batch=%s)", async (batchConsuming) => {
@@ -375,9 +552,9 @@ describe("Kafka backend through KTMessageQueue", () => {
     try {
       await queue.initConsumer(kafkaConfig);
       await expect(consume(false)).rejects.toBe(error);
-      expect(startSpan).toHaveBeenCalledWith(`kafka-trail: handler ${topicName}`, {
+      expect(startSpan).toHaveBeenCalledWith(`kafka-trail: kafka process ${topicName}`, {
         kind: otel.SpanKind.CONSUMER,
-        attributes: expect.objectContaining({ "messaging.kafka.payload": JSON.stringify([{ value: 1 }]) }),
+        attributes: expect.objectContaining({ "messaging.payload": JSON.stringify([{ value: 1 }]) }),
       });
       expect(end).toHaveBeenCalledTimes(2);
     } finally {

@@ -60,7 +60,9 @@ bun run build
 
 This setup does not require `python`, `node-gyp`, or a C++ Node addon toolchain.
 
-### OpenTelemetry tracing
+### OpenTelemetry observability
+
+Kafka and BullMQ share the same tracing and metrics implementation. Pass `tracingSettings.otel` to enable tracing and `meter` to enable metrics; they can be enabled independently.
 
 `KTMessageQueue` no longer relies on its own runtime copy of `@opentelemetry/api`.
 
@@ -77,6 +79,7 @@ import { KafkaClientId, KTMessageQueue } from "@awesomeniko/kafka-trail";
 const kafkaBrokerUrls = ["localhost:19092"];
 
 const messageQueue = new KTMessageQueue({
+  meter: otel.metrics.getMeter("my-service"),
   tracingSettings: {
     otel,
     addPayloadToTrace: false,
@@ -94,6 +97,37 @@ await messageQueue.initProducer({
 ```
 
 If your application uses a wrapper package like `observability`, pass the OpenTelemetry API object from there instead of importing a separate copy directly.
+
+Both backends create `PRODUCER` spans for publication and `CONSUMER` spans for processing, named `kafka-trail: <kafka|bullmq> <publish|process> <topic-or-queue>`. They share `messaging.system`, `messaging.destination.name`, `messaging.operation.name`, `messaging.batch.message_count` and `messaging.message.body.size` attributes. Payloads are attached as `messaging.payload` only when `addPayloadToTrace` is enabled. Kafka also records partition and offset; BullMQ records job ID and attempts made. Failed operations record their exception and set the span status to `ERROR`. Spans close on success and failure.
+
+Passing a `meter` enables these shared instruments:
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `message_handler_executions` | Counter | Processing attempts, including retries. |
+| `message_handler_duration` | Histogram, seconds | Duration of a processing attempt. |
+| `messages_produced` | Counter | Messages in successful publication calls. |
+| `messages_consumed` | Counter | Kafka records whose processing finished, or BullMQ jobs confirmed completed. |
+
+The handler metrics use `messaging.system` (`kafka` or `bullmq`), `messaging.destination.name` (topic or queue) and `messaging.handler.outcome` (`completed` or `failed`). Kafka batches count once per handler invocation. A Kafka handler failure counts as `failed` even when subsequent DLQ publication succeeds. Publication spans do not increment handler metrics.
+
+The throughput counters use `messaging.system` and `messaging.destination.name`. Kafka `messages_consumed` also includes `messaging.consumer.group.name`, so independent consumer groups can be compared to production separately. IDs, payloads and errors are excluded from their attributes.
+
+`messages_produced` counts one message per single publication and the actual batch size after a successful bulk publication. A bulk call across BullMQ queues is counted separately for each successful queue operation. `messages_consumed` counts processed Kafka records, including tombstones and records successfully routed to DLQ; failed processing attempts are excluded. In batch mode it counts only the records handled and resolved in that batch. BullMQ consumption is counted on the worker's `completed` event, after Redis confirms completion, rather than when the handler returns or retries.
+
+For Grafana with Prometheus, use `rate()` for messages per second and `increase()` for messages over an interval. Assuming your exporter uses normalized labels and the `_total` counter suffix, these queries compare one Kafka topic and consumer group across application replicas:
+
+```promql
+# Produced messages/second
+sum(rate(messages_produced_total{messaging_system="kafka", messaging_destination_name="events"}[5m])) or vector(0)
+
+# Consumed messages/second for one consumer group
+sum(rate(messages_consumed_total{messaging_system="kafka", messaging_destination_name="events", messaging_consumer_group_name="my-group"}[5m])) or vector(0)
+```
+
+Subtract consumed rate from produced rate in Grafana. For BullMQ, select `messaging_system="bullmq"` and the queue name, without a consumer-group filter. A positive difference indicates an imbalance in flow, rather than an exact queue depth: Kafka records can be redelivered, BullMQ deduplication can accept a publication without adding a job, and scheduler-generated jobs bypass these publication calls. Use Kafka consumer lag or BullMQ queue counts to measure the actual backlog.
+
+These instruments replace the previous BullMQ-only `job_handler_executions` and `job_handler_duration` metrics. Transport-specific payload trace attributes are now unified as `messaging.payload`; payload size is recorded as `messaging.message.body.size`.
 
 If you prefer, you can also pass only the required OpenTelemetry fields explicitly:
 
@@ -145,6 +179,18 @@ That is the standard `napi-rs` distribution model and avoids local compilation f
 
 ## Usage
 
+### Health checks
+
+After initializing Kafka, use `checkKafkaConnection()` in your application's `/health` handler. It uses the existing KafkaJS clients: the producer's `admin.describeCluster()` when a producer is initialized, otherwise `consumer.describeGroup()`. Producer-only and consumer-only applications can use the same method. If both are initialized, the producer check is used and its errors are propagated.
+
+```typescript
+await messageQueue.checkKafkaConnection();
+```
+
+The method returns `Promise<void>` and propagates connection or authentication errors. It throws `Kafka is not initialized` when no Kafka producer or consumer is initialized. It checks broker availability, not whether handlers are processing messages. KafkaJS connection, request timeout and retry settings apply to the check.
+
+For BullMQ, use `checkBullMQConnection()`. If your application uses both backends, await both checks in `/health`.
+
 ### BullMQ jobs
 
 Each job definition has its own BullMQ queue. Register handlers before initializing the consumer. Kafka and BullMQ can run independently or together on the same `KTMessageQueue` instance.
@@ -175,7 +221,7 @@ mq.registerJobHandlers([
       await ctx.sendEmail(payload.email);
       await job.updateProgress(100);
       // publisher can publish both Kafka messages and BullMQ jobs.
-      // signal is BullMQ's cancellation signal when available.
+      // signal is aborted on lock loss or forced shutdown.
     },
   }),
 ]);
@@ -202,7 +248,41 @@ Like `KTHandler`, `KTJobHandler.run` receives `(payloads, ctx, publisher, params
 
 `CreateKTJob(settings, codec)` accepts the same JSON, Zod, AJV and custom codecs as Kafka topic definitions. Metadata includes an automatically generated `traceId` when none is supplied. Job options override definition defaults; definition defaults override producer defaults. `jobId` uses BullMQ's deduplication behavior while that ID remains in the queue. Bulk publication is atomic within each queue; publication across different queues is independent.
 
-Both initializers accept BullMQ options with Redis connection settings. Producer and consumer must use the same Redis database and `prefix`. Worker options on a handler override consumer defaults. `getBullMQQueue(name)` returns a native queue after its first publication or scheduler operation; `getBullMQWorker(name)` returns the running worker. The library owns and closes its Redis connections. `destroyAll()` waits for active handlers before closing producers.
+Both initializers accept BullMQ options with Redis connection settings. Producer and consumer must use the same Redis database and `prefix`. Worker options on a handler override consumer defaults. `getBullMQQueue(name)` returns a native queue after its first publication or scheduler operation; `getBullMQWorker(name)` returns the running worker. The library owns and closes its Redis connections. `checkBullMQConnection()` checks initialized producer and worker connections, including before the first publication.
+
+### BullMQ final failures
+
+Handlers can define an optional `onFinalFailure` callback with the same decoded payload, context, publisher and job parameters as `run`, plus `error` in its fourth argument. It runs after a job becomes terminally failed, including when `removeOnFail` deletes it. Callback errors are logged. Typed callbacks require a successfully decoded payload.
+
+```typescript
+import { UnrecoverableJobError } from "@awesomeniko/kafka-trail";
+
+const ProcessTask = CreateKTJob<{ id: string }>({
+  name: "process.task",
+  defaultJobOptions: { attempts: 5, backoff: { type: "exponential", delay: 1000 } },
+});
+
+mq.registerJobHandlers([
+  KTJobHandler({
+    job: ProcessTask,
+    run: async ([payload], _ctx, _publisher, { signal }) => {
+      if (!payload) return;
+      signal.throwIfAborted();
+      if (!payload.id) throw new UnrecoverableJobError("Task ID is required");
+      // Process the task and pass signal to cancellable operations.
+    },
+    onFinalFailure: async ([payload], _ctx, _publisher, { error }) => {
+      // Application code can store failure state or send a notification.
+    },
+  }),
+]);
+```
+
+`UnrecoverableJobError` stops automatic retries immediately. State storage, outbox reconciliation and domain-specific recovery remain application responsibilities.
+
+`destroyBullMQConsumer({ graceful: true, timeout: 30_000 })` stops taking new jobs and waits for active handlers and final failure callbacks. On timeout, or with `graceful: false`, active signals are aborted and workers are force-closed. Handlers must cooperate with cancellation; JavaScript execution cannot be forcibly terminated. `destroyAll()` accepts the same BullMQ shutdown options and closes producers after consumers. Its timeout applies to BullMQ; Kafka shutdown behavior is unchanged.
+
+BullMQ attempts are logged with job name, ID, result and duration. Tracing and metrics use the shared OpenTelemetry configuration described above.
 
 ### BullMQ schedulers
 
@@ -805,6 +885,8 @@ It's planned to be removed in the next version:
 
 ## Testing
 
+Tests use Jest. Run the full suite with `bun run test`; `bun test` starts Bun's built-in test runner and does not load the Jest configuration or integration setup.
+
 Run unit tests with `bun run test:unit`.
 
 Integration tests use [Testcontainers Redpanda](https://node.testcontainers.org/modules/redpanda/) and [Testcontainers Redis](https://node.testcontainers.org/modules/redis/).
@@ -824,7 +906,7 @@ bun run test:int
 ```
 
 Integration tests use the real native LZ4 codec. Unit tests use a mock codec.
-BullMQ integration tests cover publication through handlers, bulk jobs, retries, delays, schema validation, schedulers, graceful shutdown and Kafka → BullMQ → Kafka delivery.
+BullMQ integration tests cover publication through handlers, bulk jobs, retries, final failure callbacks, unrecoverable failures, lock-loss cancellation, delays, schema validation, schedulers, graceful shutdown and Kafka → BullMQ → Kafka delivery.
 The default timeout for each integration test is 30 seconds; set `KAFKA_INT_TEST_TIMEOUT_MS` to override it.
 CI builds the native codec and runs both test suites.
 

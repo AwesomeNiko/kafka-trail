@@ -15,8 +15,21 @@ const createKafkaMocks = ({
   payloadToRun = [],
 } = {}) => {
   const kafkaAdminConnectFn = jest.fn<() => Promise<void>>();
+  const kafkaAdminDisconnectFn = jest.fn<Admin["disconnect"]>().mockResolvedValue(undefined);
+  const describeClusterFn = jest.fn<Admin["describeCluster"]>().mockResolvedValue({
+    brokers: [{ nodeId: 0, host: "localhost", port: 19092 }],
+    controller: 0,
+    clusterId: "test-cluster",
+  });
   const kafkaProducerConnectFn = jest.fn<() => Promise<void>>();
   const kafkaConsumerConnectFn = jest.fn<() => Promise<void>>();
+  const describeGroupFn = jest.fn<Consumer["describeGroup"]>().mockResolvedValue({
+    groupId: "test-group",
+    members: [],
+    protocol: "RoundRobinAssigner",
+    protocolType: "consumer",
+    state: "Stable",
+  });
 
   // @ts-expect-error too much return arguments
   const fetchTopicMetadataFn = jest.fn<( options: {topics: string[]}) => Promise<{topics: ITopicMetadata[]}>>().mockImplementation(({ topics }) => {
@@ -40,6 +53,8 @@ const createKafkaMocks = ({
   // @ts-expect-error too much return arguments
   const adminMockImpl: (config?: AdminConfig) => Admin = () => ({
     connect: kafkaAdminConnectFn,
+    disconnect: kafkaAdminDisconnectFn,
+    describeCluster: describeClusterFn,
     fetchTopicMetadata: fetchTopicMetadataFn,
     createPartitions: createPartitionsFn,
     createTopics: createTopicsFn,
@@ -48,12 +63,16 @@ const createKafkaMocks = ({
   // @ts-expect-error too much return arguments
   const kafkaProducerMockImpl: ()  => Producer = () => ({
     connect: kafkaProducerConnectFn,
+    disconnect: jest.fn<Producer["disconnect"]>().mockResolvedValue(undefined),
     send: sendMsgFn,
   })
 
   // @ts-expect-error too much return arguments
   const kafkaConsumerMockImpl: ()  => Consumer = () => ({
     connect: kafkaConsumerConnectFn,
+    describeGroup: describeGroupFn,
+    stop: jest.fn<Consumer["stop"]>().mockResolvedValue(undefined),
+    disconnect: jest.fn<Consumer["disconnect"]>().mockResolvedValue(undefined),
     subscribe: consumerSubscribe,
     async run(config?: ConsumerRunConfig): Promise<void> {
       if (!config) return Promise.resolve()
@@ -155,11 +174,14 @@ const createKafkaMocks = ({
 
   return {
     kafkaAdminConnectFn,
+    kafkaAdminDisconnectFn,
+    describeClusterFn,
     kafkaProducerConnectFn,
     fetchTopicMetadataFn,
     createPartitionsFn,
     createTopicsFn,
     kafkaConsumerConnectFn,
+    describeGroupFn,
     sendMsgFn,
     consumerSubscribe,
     kafkaAdminMock,

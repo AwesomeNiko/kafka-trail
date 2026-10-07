@@ -35,6 +35,7 @@ class KTKafkaConsumer extends KTKafkaBroker {
   #isConnected = false;
   #logger: pino.Logger;
   heartBeatInterval: number;
+  readonly consumerGroupId: string;
 
   consumer: Kafka.Consumer
 
@@ -68,6 +69,8 @@ class KTKafkaConsumer extends KTKafkaBroker {
     if (!consumerGroupId) {
       throw new Error("group id must be provided");
     }
+
+    this.consumerGroupId = consumerGroupId;
 
     const { logger } = params
     this.#logger = logger;
@@ -107,6 +110,10 @@ class KTKafkaConsumer extends KTKafkaBroker {
 
   isConnected() {
     return this.#isConnected;
+  }
+
+  async checkConnection(): Promise<void> {
+    await this.consumer.describeGroup();
   }
 
   async init() {

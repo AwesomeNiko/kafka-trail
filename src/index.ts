@@ -80,8 +80,15 @@ export type {
   KTJobRun,
   KTJobHandlerParams,
   KTJobHandlerOptions,
+  KTJobFailureParams,
+  KTJobFailureHandler,
 } from "./bullmq/consumer-handler.js"
-export type { KTBullMQProducerConfig, KTBullMQConsumerConfig } from "./bullmq/index.js"
+export type {
+  KTBullMQProducerConfig,
+  KTBullMQConsumerConfig,
+  KTBullMQShutdownOptions,
+} from "./bullmq/index.js"
+export { UnrecoverableError as UnrecoverableJobError } from "bullmq"
 export { BullMQProducerNotInitializedError, NoJobHandlersError } from "./custom-errors/bullmq-errors.js"
 export type { KTPublisher } from "./message-queue/publisher.js"
 export type { KTLogger } from "./libs/helpers/logger.js"

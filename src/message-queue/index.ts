@@ -1,8 +1,9 @@
+import type { Meter } from "@opentelemetry/api";
 import pino from "pino";
 import type { Logger } from "pino";
 
 import type { KTJobHandler } from "../bullmq/consumer-handler.js";
-import { BullMQBackend, type KTBullMQConsumerConfig, type KTBullMQProducerConfig } from "../bullmq/index.js";
+import { BullMQBackend, type KTBullMQConsumerConfig, type KTBullMQProducerConfig, type KTBullMQShutdownOptions } from "../bullmq/index.js";
 import type { KTJobPayload, KTJobScheduler } from "../bullmq/job.js";
 import type { KTHandler } from "../kafka/consumer-handler.js";
 import { KafkaBackend } from "../kafka/index.js";
@@ -12,6 +13,7 @@ import type { KTTopicBatchPayload } from "../kafka/topic-batch.js";
 import type { KTTopicEvent, KTTopicPayloadWithMeta } from "../kafka/topic.js";
 import type { KafkaTopicName } from "../libs/branded-types/kafka/index.js";
 import type { KTLogger } from "../libs/helpers/logger.js";
+import { KTObservability } from "../libs/helpers/observability.js";
 import { KTTracing, type KTTracingSettings } from "../libs/helpers/tracing.js";
 
 class KTMessageQueue<Ctx extends object> {
@@ -25,6 +27,7 @@ class KTMessageQueue<Ctx extends object> {
       logger?: Logger
     },
     tracingSettings?: KTTracingSettings
+    meter?: Meter
   }) {
     let ctx = params?.ctx()
 
@@ -38,15 +41,21 @@ class KTMessageQueue<Ctx extends object> {
 
     this.#ctx = ctx as Ctx & KTLogger
     this.#tracing = new KTTracing(params?.tracingSettings)
+    const observability = new KTObservability({
+      tracing: this.#tracing,
+      ...(params?.meter ? { meter: params.meter } : {}),
+    })
     this.#kafkaBackend = new KafkaBackend({
       ctx: this.#ctx,
       publisher: this,
       tracing: this.#tracing,
+      observability,
     })
     this.#bullMQBackend = new BullMQBackend({
       ctx: this.#ctx,
       publisher: this,
       tracing: this.#tracing,
+      observability,
     })
   }
 
@@ -70,10 +79,14 @@ class KTMessageQueue<Ctx extends object> {
     return this.#kafkaBackend.initConsumer(params);
   }
 
-  async destroyAll() {
+  checkKafkaConnection() {
+    return this.#kafkaBackend.checkConnection();
+  }
+
+  async destroyAll(options?: KTBullMQShutdownOptions) {
     await Promise.all([
       this.destroyConsumer(),
-      this.destroyBullMQConsumer(),
+      this.destroyBullMQConsumer(options),
     ])
     await Promise.all([
       this.destroyProducer(),
@@ -138,6 +151,10 @@ class KTMessageQueue<Ctx extends object> {
     return this.#bullMQBackend.publishJob(job);
   }
 
+  checkBullMQConnection() {
+    return this.#bullMQBackend.checkConnection();
+  }
+
   publishBatchJobs(jobs: KTJobPayload[]) {
     return this.#bullMQBackend.publishBatchJobs(jobs);
   }
@@ -154,8 +171,8 @@ class KTMessageQueue<Ctx extends object> {
     return this.#bullMQBackend.destroyProducer();
   }
 
-  destroyBullMQConsumer() {
-    return this.#bullMQBackend.destroyConsumer();
+  destroyBullMQConsumer(options?: KTBullMQShutdownOptions) {
+    return this.#bullMQBackend.destroyConsumer(options);
   }
 }
 
